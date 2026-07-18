@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: seokit
+      POSTGRES_PASSWORD: seokit
+      POSTGRES_DB: seokit
+    ports:
+      - "5433:5432" # host 5433 to avoid clashing with any other local postgres on 5432
+    volumes:
+      - seokit_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seokit"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379" # host 6380 to avoid clashing with any other local redis on 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  render-sidecar:
+    build:
+      context: ../apps/render-sidecar
+    ports:
+      - "4000:4000"
+
+  api:
+    build:
+      context: ../apps/api
+    env_file:
+      - ../apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://seokit:seokit@postgres:5432/seokit
+      REDIS_URL: redis://redis:6379/0
+      RENDER_SIDECAR_URL: http://render-sidecar:4000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../apps/api:/app
+
+  worker:
+    build:
+      context: ../apps/api
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - ../apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://seokit:seokit@postgres:5432/seokit
+      REDIS_URL: redis://redis:6379/0
+      RENDER_SIDECAR_URL: http://render-sidecar:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      render-sidecar:
+        condition: service_started
+    volumes:
+      - ../apps/api:/app
+
+  web:
+    build:
+      context: ../apps/web
+    env_file:
+      - ../apps/web/.env.local
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ../apps/web:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  seokit_pgdata:
