@@ -85,10 +85,30 @@ export default function AuditResultsPage({ params }: { params: Promise<{ id: str
                     <span className="text-sm text-neutral-400">Running...</span>
                   ) : (
                     result.score !== null && (
-                      <span className="text-sm text-neutral-400">Score: {result.score}/100</span>
+                      <span className="flex items-center gap-2 text-sm text-neutral-400">
+                        Score: {result.score}/100
+                        {result.diff?.score_delta != null && result.diff.score_delta !== 0 && (
+                          <span className={result.diff.score_delta > 0 ? "text-green-400" : "text-red-400"}>
+                            {result.diff.score_delta > 0 ? "+" : ""}
+                            {result.diff.score_delta}
+                          </span>
+                        )}
+                      </span>
                     )
                   )}
                 </div>
+                {result.diff && (result.diff.new_finding_codes.length > 0 || result.diff.resolved_finding_codes.length > 0) && (
+                  <p className="mb-2 text-xs text-neutral-500">
+                    {result.diff.new_finding_codes.length > 0 && (
+                      <span className="text-orange-400">{result.diff.new_finding_codes.length} new</span>
+                    )}
+                    {result.diff.new_finding_codes.length > 0 && result.diff.resolved_finding_codes.length > 0 && " · "}
+                    {result.diff.resolved_finding_codes.length > 0 && (
+                      <span className="text-green-400">{result.diff.resolved_finding_codes.length} resolved</span>
+                    )}
+                    {" since last audit"}
+                  </p>
+                )}
                 {result.status === "running" && result.progress ? (
                   <div>
                     <div className="mb-1 h-2 w-full overflow-hidden rounded-full bg-neutral-800">

@@ -3,14 +3,29 @@ import uuid
 
 from app.core.celery_app import celery_app
 from app.core.config import get_settings
-from app.core.db import SessionLocal
+from app.core.db import SessionLocal, engine
 from app.models.audit import AuditResult
 from app.services.crawl import build_tool_result, crawl_site
 
 
 @celery_app.task(name="run_page_crawl")
 def run_page_crawl_task(audit_result_id: str, domain: str) -> None:
-    asyncio.run(_run_page_crawl(uuid.UUID(audit_result_id), domain))
+    asyncio.run(_run_page_crawl_and_cleanup(uuid.UUID(audit_result_id), domain))
+
+
+async def _run_page_crawl_and_cleanup(audit_result_id: uuid.UUID, domain: str) -> None:
+    try:
+        await _run_page_crawl(audit_result_id, domain)
+    finally:
+        # Celery (--pool=solo, and prefork workers too) runs many tasks
+        # sequentially in one process, each via its own asyncio.run() /
+        # event loop. SQLAlchemy's async engine pools asyncpg connections
+        # bound to the loop that created them -- reusing that pool from a
+        # closed loop in the *next* task's loop produces "Event loop is
+        # closed" / "NoneType has no attribute 'send'" failures. Disposing
+        # here, inside the same loop the connections were opened on, drops
+        # the pool cleanly so the next task's loop starts with fresh ones.
+        await engine.dispose()
 
 
 async def _run_page_crawl(audit_result_id: uuid.UUID, domain: str) -> None:

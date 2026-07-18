@@ -1,7 +1,3 @@
-import asyncio
-import socket
-import ssl
-from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse
 
@@ -88,33 +84,6 @@ def _audit_cookies(set_cookie_headers: list[str], is_https: bool) -> tuple[list[
     return findings, cookies_info
 
 
-def _get_tls_info(hostname: str) -> dict:
-    """Blocking TLS handshake to read certificate + protocol info. Run via
-    asyncio.to_thread since ssl/socket here has no async equivalent worth
-    depending on for a single once-per-scan connection."""
-    ctx = ssl.create_default_context()
-    with socket.create_connection((hostname, 443), timeout=10) as sock:
-        with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
-            cert = ssock.getpeercert()
-            protocol = ssock.version()
-            cipher = ssock.cipher()
-
-    not_after = cert.get("notAfter")
-    expires_at = None
-    days_until_expiry = None
-    if not_after:
-        expires_at = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
-        days_until_expiry = (expires_at - datetime.now(timezone.utc)).days
-
-    return {
-        "protocol": protocol,
-        "cipher": cipher[0] if cipher else None,
-        "expires_at": expires_at.isoformat() if expires_at else None,
-        "days_until_expiry": days_until_expiry,
-        "issuer": dict(x[0] for x in cert.get("issuer", [])),
-    }
-
-
 @register_tool("http_headers")
 async def run(domain: str) -> ToolResult:
     url = domain if domain.startswith("http") else f"https://{domain}"
@@ -172,28 +141,6 @@ async def run(domain: str) -> ToolResult:
     cookie_findings, cookies_info = _audit_cookies(resp.headers.get_list("set-cookie"), is_https)
     findings.extend(cookie_findings)
     raw["cookies"] = cookies_info
-
-    if is_https:
-        try:
-            hostname = urlparse(str(resp.url)).hostname
-            tls_info = await asyncio.to_thread(_get_tls_info, hostname)
-            raw["tls"] = tls_info
-            days_left = tls_info["days_until_expiry"]
-            if days_left is not None:
-                if days_left < 14:
-                    findings.append(
-                        Finding("critical", "cert_expiring_soon", f"TLS certificate expires in {days_left} days")
-                    )
-                elif days_left < 30:
-                    findings.append(
-                        Finding("medium", "cert_expiring_soon", f"TLS certificate expires in {days_left} days")
-                    )
-            if tls_info["protocol"] in ("TLSv1", "TLSv1.1"):
-                findings.append(
-                    Finding("high", "weak_tls_protocol", f"Server negotiated outdated {tls_info['protocol']}")
-                )
-        except (OSError, ssl.SSLError) as exc:
-            raw["tls"] = {"error": str(exc)}
 
     return ToolResult(
         tool="http_headers", status="ok", score=score_from_findings(findings), findings=findings, raw=raw

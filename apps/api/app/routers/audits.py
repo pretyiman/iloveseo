@@ -11,6 +11,7 @@ from app.models.audit import Audit, AuditResult
 from app.models.project import Project
 from app.models.user import User
 from app.schemas import AuditCreate, AuditOut
+from app.services.diffing import diff_result, get_previous_results_by_tool
 from app.services.orchestrator import run_audit
 
 router = APIRouter(prefix="/audits", tags=["audits"])
@@ -58,8 +59,13 @@ async def get_audit(
     if project is None or project.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Audit not found")
 
-    results = await db.scalars(
-        select(AuditResult).where(AuditResult.audit_id == audit_id).order_by(AuditResult.created_at)
+    results = list(
+        await db.scalars(select(AuditResult).where(AuditResult.audit_id == audit_id).order_by(AuditResult.created_at))
     )
-    audit.results = list(results)
+
+    previous_by_tool = await get_previous_results_by_tool(db, audit.project_id, audit.id)
+    for result in results:
+        result.diff = diff_result(result, previous_by_tool.get(result.tool))
+
+    audit.results = results
     return audit

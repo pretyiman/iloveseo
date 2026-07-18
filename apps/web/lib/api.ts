@@ -17,6 +17,13 @@ export type Finding = {
   message: string;
 };
 
+export type AuditDiff = {
+  previous_score: number | null;
+  score_delta: number | null;
+  new_finding_codes: string[];
+  resolved_finding_codes: string[];
+};
+
 export type AuditResult = {
   tool: string;
   status: "running" | "ok" | "error";
@@ -24,6 +31,7 @@ export type AuditResult = {
   findings: Finding[];
   raw: Record<string, unknown>;
   progress: { pages_crawled: number; pages_total_estimate: number } | null;
+  diff: AuditDiff | null;
   created_at: string;
 };
 
@@ -34,6 +42,13 @@ export type Audit = {
   created_at: string;
   completed_at: string | null;
   results: AuditResult[];
+};
+
+export type AuditSummary = {
+  id: string;
+  status: Audit["status"];
+  created_at: string;
+  completed_at: string | null;
 };
 
 /** Thin authenticated fetch wrapper -- attaches the Clerk session token to
@@ -68,5 +83,6 @@ export function useApiClient() {
     createAudit: (projectId: string) =>
       request<Audit>("/audits", { method: "POST", body: JSON.stringify({ project_id: projectId }) }),
     getAudit: (auditId: string) => request<Audit>(`/audits/${auditId}`),
+    listProjectAudits: (projectId: string) => request<AuditSummary[]>(`/projects/${projectId}/audits`),
   };
 }

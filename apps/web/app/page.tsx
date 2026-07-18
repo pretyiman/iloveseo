@@ -9,6 +9,12 @@ const TOOLS = [
   "Sitemap Finder",
   "Website Speed Test",
   "Website Technology Checker",
+  "Mobile Support Test",
+  "Page Crawl (Site-Wide Audit)",
+  "SSL/TLS + DNS Health Checker",
+  "hreflang / International SEO Checker",
+  "Structured Data / Rich Results Validator",
+  "Accessibility Audit",
 ];
 
 export default function Home() {

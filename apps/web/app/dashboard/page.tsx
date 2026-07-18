@@ -1,6 +1,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useApiClient, type Project } from "@/lib/api";
 
@@ -76,13 +77,21 @@ export default function DashboardPage() {
             className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3"
           >
             <span className="text-neutral-100">{p.domain}</span>
-            <button
-              onClick={() => handleRunAudit(p.id)}
-              disabled={runningAuditFor === p.id}
-              className="rounded-full border border-neutral-700 px-4 py-1.5 text-sm text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
-            >
-              {runningAuditFor === p.id ? "Starting..." : "Run audit"}
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/dashboard/projects/${p.id}/history`}
+                className="rounded-full border border-neutral-700 px-4 py-1.5 text-sm text-neutral-100 hover:border-neutral-500"
+              >
+                History
+              </Link>
+              <button
+                onClick={() => handleRunAudit(p.id)}
+                disabled={runningAuditFor === p.id}
+                className="rounded-full border border-neutral-700 px-4 py-1.5 text-sm text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+              >
+                {runningAuditFor === p.id ? "Starting..." : "Run audit"}
+              </button>
+            </div>
           </li>
         ))}
         {!loading && projects.length === 0 && (

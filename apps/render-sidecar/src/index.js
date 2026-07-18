@@ -1,5 +1,6 @@
 import express from "express";
 import puppeteer from "puppeteer";
+import { runAccessibilityScan } from "./accessibility.js";
 import { renderPage } from "./render.js";
 
 const PORT = process.env.PORT || 4000;
@@ -27,6 +28,19 @@ app.post("/render", async (req, res) => {
       fullPageScreenshot: Boolean(full_page_screenshot),
       timeoutMs: timeout_ms || 20000,
     });
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
+});
+
+app.post("/accessibility", async (req, res) => {
+  const { url, device, timeout_ms } = req.body ?? {};
+  if (!url) {
+    return res.status(400).json({ error: "url is required" });
+  }
+  try {
+    const result = await runAccessibilityScan(browser, { url, device, timeoutMs: timeout_ms || 20000 });
     res.json(result);
   } catch (err) {
     res.status(502).json({ error: String(err) });

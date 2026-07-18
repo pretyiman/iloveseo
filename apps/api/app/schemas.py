@@ -29,6 +29,7 @@ class AuditResultOut(BaseModel):
     findings: list
     raw: dict
     progress: dict | None = None
+    diff: dict | None = None
     created_at: datetime
 
 
@@ -41,3 +42,12 @@ class AuditOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     results: list[AuditResultOut] = []
+
+
+class AuditSummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: str
+    created_at: datetime
+    completed_at: datetime | None
