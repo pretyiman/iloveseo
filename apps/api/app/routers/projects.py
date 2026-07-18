@@ -28,7 +28,7 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Project:
-    project = Project(user_id=user.id, domain=_normalize_domain(payload.domain))
+    project = Project(user_id=user.id, domain=_normalize_domain(payload.domain), brand_name=payload.brand_name)
     db.add(project)
     await db.commit()
     await db.refresh(project)

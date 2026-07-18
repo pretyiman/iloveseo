@@ -8,6 +8,30 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 export type Project = {
   id: string;
   domain: string;
+  brand_name: string | null;
+  created_at: string;
+};
+
+export type TrackedQuery = {
+  id: string;
+  project_id: string;
+  query_text: string;
+  competitor_domains: string[];
+  active: boolean;
+  created_at: string;
+};
+
+export type GeoCheck = {
+  id: string;
+  tracked_query_id: string;
+  provider: "perplexity" | "openai";
+  status: "ok" | "error";
+  cited: boolean | null;
+  position: number | null;
+  competitor_mentions: Record<string, boolean>;
+  citation_urls: string[];
+  response_text: string | null;
+  error_message: string | null;
   created_at: string;
 };
 
@@ -71,6 +95,9 @@ export function useApiClient() {
         const body = await res.text();
         throw new Error(`${res.status} ${res.statusText}: ${body}`);
       }
+      if (res.status === 204) {
+        return undefined as T;
+      }
       return res.json() as Promise<T>;
     },
     [getToken]
@@ -78,11 +105,22 @@ export function useApiClient() {
 
   return {
     listProjects: () => request<Project[]>("/projects"),
-    createProject: (domain: string) =>
-      request<Project>("/projects", { method: "POST", body: JSON.stringify({ domain }) }),
+    createProject: (domain: string, brandName?: string) =>
+      request<Project>("/projects", { method: "POST", body: JSON.stringify({ domain, brand_name: brandName || null }) }),
     createAudit: (projectId: string) =>
       request<Audit>("/audits", { method: "POST", body: JSON.stringify({ project_id: projectId }) }),
     getAudit: (auditId: string) => request<Audit>(`/audits/${auditId}`),
     listProjectAudits: (projectId: string) => request<AuditSummary[]>(`/projects/${projectId}/audits`),
+    listTrackedQueries: (projectId: string) => request<TrackedQuery[]>(`/projects/${projectId}/tracked-queries`),
+    createTrackedQuery: (projectId: string, queryText: string, competitorDomains: string[]) =>
+      request<TrackedQuery>(`/projects/${projectId}/tracked-queries`, {
+        method: "POST",
+        body: JSON.stringify({ query_text: queryText, competitor_domains: competitorDomains }),
+      }),
+    deleteTrackedQuery: (trackedQueryId: string) =>
+      request<void>(`/tracked-queries/${trackedQueryId}`, { method: "DELETE" }),
+    runGeoCheck: (trackedQueryId: string) =>
+      request<GeoCheck[]>(`/tracked-queries/${trackedQueryId}/check`, { method: "POST" }),
+    listGeoChecks: (trackedQueryId: string) => request<GeoCheck[]>(`/tracked-queries/${trackedQueryId}/checks`),
   };
 }

@@ -84,6 +84,12 @@ export default function DashboardPage() {
               >
                 History
               </Link>
+              <Link
+                href={`/dashboard/projects/${p.id}/geo`}
+                className="rounded-full border border-neutral-700 px-4 py-1.5 text-sm text-neutral-100 hover:border-neutral-500"
+              >
+                AI Visibility
+              </Link>
               <button
                 onClick={() => handleRunAudit(p.id)}
                 disabled={runningAuditFor === p.id}

@@ -53,9 +53,13 @@ services required -- everything is mocked with `respx`).
 
 ## Status
 
-13 tools live (see `docs/PROGRESS.md` for the full breakdown): Meta Tags,
-HTTP Headers, AI Crawler/llms.txt Checker, Redirect Chain Checker, Sitemap
-Finder, Website Speed Test (PSI), Website Technology Checker, Mobile Support
-Test, Page Crawl (site-wide), SSL/TLS + DNS Health Checker, hreflang Checker,
-Structured Data Validator, Accessibility Audit. Plus audit-over-time diffing
-and a project history view.
+13 audit tools live (see `docs/PROGRESS.md` for the full breakdown): Meta
+Tags, HTTP Headers, AI Crawler/llms.txt Checker, Redirect Chain Checker,
+Sitemap Finder, Website Speed Test (PSI), Website Technology Checker,
+Mobile Support Test, Page Crawl (site-wide), SSL/TLS + DNS Health Checker,
+hreflang Checker, Structured Data Validator, Accessibility Audit. Plus
+audit-over-time diffing, a project history view, and a GEO/AI Visibility
+tracker (Perplexity + OpenAI, on-demand citation checks against tracked
+queries) -- the GEO provider integrations are built and structurally
+verified but have not yet made a real API call (no keys configured in this
+environment; see `docs/PROGRESS.md`).

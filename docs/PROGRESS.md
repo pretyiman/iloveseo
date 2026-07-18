@@ -1,8 +1,8 @@
 # Implementation Progress
 
-Status as of the Phase 3 completion (before first git push). Update this
-file as work continues -- it's the source of truth for "what's actually
-done" vs. `docs/PLAN.md`'s "what's intended."
+Status as of Phase 4 completion. Update this file as work continues --
+it's the source of truth for "what's actually done" vs. `docs/PLAN.md`'s
+"what's intended."
 
 ## Phase status
 
@@ -12,7 +12,7 @@ done" vs. `docs/PLAN.md`'s "what's intended."
 | 1 -- 7 sync tools | Done, verified | Each tool live-tested against real domains, not just mocks |
 | 2 -- browser tools + queue | Done, verified | Sidecar, Celery/Redis, Mobile Test, Page Crawl |
 | 3 -- site-health gaps | Done, verified | SSL/DNS, hreflang, structured data, accessibility, diffing |
-| 4 -- GEO/AI Visibility tracker | Not started | |
+| 4 -- GEO/AI Visibility tracker | Done, structurally verified | Perplexity + OpenAI providers; **no live LLM API call has been tested** -- see gaps |
 | 5 -- Growth (API, CLI, teams, tools 10-13) | Not started | |
 
 ## Tools (13 live)
@@ -33,8 +33,43 @@ done" vs. `docs/PLAN.md`'s "what's intended."
 | Structured Data Validator | `structured_data` | sync | 9 | github.com, stripe.com |
 | Accessibility Audit | `accessibility` | sidecar (axe-core), in fast batch | 3 (+2 render-client) | example.com |
 
-104 backend tests total, all passing (`pytest` from `apps/api`, no external
+119 backend tests total, all passing (`pytest` from `apps/api`, no external
 services required).
+
+## GEO / AI Visibility tracker (Phase 4)
+
+Not an audit tool like the 13 above -- a recurring feature: a project
+defines "tracked queries" (questions its customers might ask an AI), and
+each on-demand check fans out to configured providers concurrently, checks
+whether the project's domain/brand name got cited, and records the result.
+
+| Component | Tests | Live-verified |
+|---|---|---|
+| Provider adapters (`app/services/geo/providers.py`) | 7 | No -- see gaps |
+| Citation/mention detection (`app/services/geo/analysis.py`) | 6 | Pure logic, no external calls needed |
+| Check runner (`app/services/geo/runner.py`) | 2 | Structurally, via mocked providers |
+| API endpoints + DB round-trip | none (manual only) | Yes -- real Postgres, see below |
+
+**What was actually verified**, against a real Postgres with no API keys
+configured: creating a project with a `brand_name`, creating a tracked
+query with competitor domains, the GEO-check monthly quota check (a
+brand-new user's first check correctly allowed, correctly increments),
+`run_geo_check` gracefully reporting "not configured" for both providers
+instead of crashing, writing `GeoCheck` rows, and deleting a tracked query
+cleanly cascading its checks. Also booted the API server and confirmed the
+4 new routes are registered, require auth (401 unauthenticated), and appear
+in the OpenAPI schema.
+
+**What was not verified: any real LLM API call.** Both provider adapters
+(`query_perplexity`, `query_openai`) are written against current provider
+documentation (checked via web search during this build, not assumed from
+training data) but have never received a real response from either API --
+no keys are configured in this environment. The OpenAI adapter in
+particular carries more risk here: it parses a specific nested shape
+(`output[].content[].annotations[].url_citation.url`) from the Responses
+API that could differ in practice. **Before relying on this in production,
+add real `PERPLEXITY_API_KEY`/`OPENAI_API_KEY` values and run one real
+check against a known query to confirm both response shapes still match.**
 
 ## Known gaps / not yet done
 
@@ -87,6 +122,17 @@ actually requires).
 doesn't run a mobile device pass -- axe-core rules like target-size overlap
 with Mobile Test's tap-target check but aren't cross-validated.
 
+**GEO tracker has no scheduling.** Checks are on-demand only (a "Check now"
+button) -- no Celery Beat periodic re-checking, so there's no automatic
+trend-over-time data yet, only whatever the user manually triggers. Also
+only 2 of the eventual 4 providers (Perplexity, OpenAI) are implemented;
+Anthropic and Gemini are addable behind the same `PROVIDERS` dict in
+`app/services/geo/providers.py` without touching the runner, analysis, API,
+or frontend layers.
+
+**GEO citation-URL provider integration is unverified against a real API
+response.** See the Phase 4 section above.
+
 ## Real bugs found and fixed during verification (not just features)
 
 - **respx (test HTTP mock library) treats a path-less mocked URL as a
@@ -102,9 +148,34 @@ with Mobile Test's tap-target check but aren't cross-validated.
   Fixed by calling `engine.dispose()` at the end of every Celery task, in
   the same loop the connections were opened on. Verified with 3 clean
   sequential runs.
+- **A refactor in `plan_limits.py` (done to share logic between the scan
+  quota and the new GEO-check quota) dropped an explicit `scans_used=0` /
+  `geo_checks_used=0` on newly-created counter rows**, relying instead on
+  SQLAlchemy's column-level `default=0`. That default only applies at
+  flush/INSERT time, not immediately on object construction -- so reading
+  `counter.geo_checks_used >= limit` right after creating a brand-new
+  counter crashed with `TypeError: '>=' not supported between instances of
+  'NoneType' and 'int'`. This would have broken **every brand-new user's
+  first scan too**, not just GEO checks -- caught by manually exercising a
+  fresh user through `check_and_increment_usage` after fixing the GEO path,
+  specifically because neither path has an automated test (see gap above).
+  Fixed by passing both fields explicitly in the constructor.
 
-## Platform note
+## Platform notes
 
 Local dev on Windows requires `celery ... --pool=solo` (the default
 prefork pool doesn't work on Windows). The Docker Compose `worker` service
 runs on Linux inside the container and doesn't need this flag.
+
+In this dev environment, `docker compose up -d <service>` (and even plain
+`docker run -d`) has repeatedly left containers stuck in `Created` status
+without actually starting them -- `docker ps` shows nothing until you run
+an explicit `docker start <container>` afterward. Separately, a container
+that's been through a `down`/`up` cycle can come back with its configured
+port mapping present in `docker inspect`'s `HostConfig.PortBindings` but
+**not actually live** in `NetworkSettings.Ports` -- `docker port` shows
+nothing and the host can't connect. Removing the container and letting
+Compose recreate it from scratch (`docker rm -f <name>` then `docker
+compose up -d <service>` then `docker start <name>`) has reliably fixed it
+each time; a stale `com.docker.backend.exe` port-proxy registration is the
+likely cause, not the compose file or the app.

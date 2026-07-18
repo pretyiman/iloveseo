@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # full-site crawl can take minutes and needs its own progress tracking.
     page_crawl_max_pages: int = 50
 
+    # GEO/AI-visibility tracker (Phase 4). Unlike every other tool, these
+    # calls cost real money per check -- each provider is independently
+    # optional, and a tracked-query check simply skips (with an error
+    # result) any provider whose key isn't set.
+    perplexity_api_key: str = ""
+    openai_api_key: str = ""
+
     cors_origins: list[str] = ["http://localhost:3000"]
 
 

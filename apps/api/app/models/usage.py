@@ -22,3 +22,7 @@ class UsageCounter(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     period_start: Mapped[date] = mapped_column(Date)
     scans_used: Mapped[int] = mapped_column(Integer, default=0)
+    # Tracked separately from scans_used: GEO checks call paid LLM APIs
+    # per provider, unlike the free HTTP-based audit tools, so they need
+    # their own (tighter) quota.
+    geo_checks_used: Mapped[int] = mapped_column(Integer, default=0)

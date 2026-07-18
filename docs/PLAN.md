@@ -83,14 +83,23 @@ knowledge cutoff), Accessibility Audit (axe-core via the sidecar),
 audit-over-time diffing (score deltas / new-resolved findings across audits,
 project history view).
 
-**Phase 4 -- AI Visibility / GEO tracker (not started).** Track brand/domain
-citations across ChatGPT, Perplexity, Gemini, Claude answers; share-of-voice
-vs. named competitors. Deliberately sequenced ahead of the original report's
-tools 10-13 (Backlink/Keyword/SERP/Traffic checkers) because it needs LLM
-API access rather than an expensive third-party SEO data license --
-consistent with the "fund further phases from revenue" sequencing decision,
-this is the highest-leverage next build once Phase 3's tool set is proven
-in front of real users.
+**Phase 4 -- AI Visibility / GEO tracker.** Track brand/domain citations
+across AI-answer engines and share-of-voice vs. named competitors, on
+demand (no scheduling yet). Deliberately sequenced ahead of the original
+report's tools 10-13 (Backlink/Keyword/SERP/Traffic checkers) because it
+needs LLM API access rather than an expensive third-party SEO data license.
+Started with two providers behind a pluggable interface -- Perplexity
+(natively search-grounded, most reliable citation signal) and OpenAI
+(Responses API with the `web_search` tool) -- with Anthropic and Gemini
+addable later behind the same `PROVIDERS` dict without touching the rest of
+the system. A tracked query's citation status is judged two ways: whether
+the domain appears in the provider's returned citation URLs, and whether
+the domain or an optional `brand_name` is named in the answer text (AI
+answers frequently name a brand without linking to it, so text-only
+mentions still count as visibility). Unlike every other tool, checks cost
+real per-call money against paid provider APIs, so they're metered against
+a separate, tighter monthly quota (`geo_checks_used`) than the free
+HTTP-based audit scans.
 
 **Phase 5 -- growth (not started).** Public API + API keys, GitHub
 Action/CLI for CI/CD integration (the "necessary infrastructure" positioning

@@ -18,6 +18,10 @@ class Project(Base):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     domain: Mapped[str] = mapped_column(String, index=True)
+    # Optional -- used by the GEO tracker (Phase 4) to detect mentions in
+    # LLM answer text, since AI answers often name a brand without citing
+    # its URL. Domain alone only catches citation-URL matches.
+    brand_name: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

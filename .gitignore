@@ -31,3 +31,7 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Source research docs (not part of the product, kept locally only)
+SEO_Repair_Kit_Research_Report.pdf
+SEO_Repair_Kit_Research_Report.docx
