@@ -13,7 +13,8 @@ it's the source of truth for "what's actually done" vs. `docs/PLAN.md`'s
 | 2 -- browser tools + queue | Done, verified | Sidecar, Celery/Redis, Mobile Test, Page Crawl |
 | 3 -- site-health gaps | Done, verified | SSL/DNS, hreflang, structured data, accessibility, diffing |
 | 4 -- GEO/AI Visibility tracker | Done, structurally verified | Perplexity + OpenAI providers; **no live LLM API call has been tested** -- see gaps |
-| 5a -- Public API + API keys | Done, verified | See below. CLI/GitHub Action, teams, and tools 10-13 remain not started |
+| 5a -- Public API + API keys | Done, verified | See below |
+| 5b -- CLI + GitHub Action | Done, verified | See below. Teams and tools 10-13 remain not started |
 
 ## Tools (13 live)
 
@@ -129,6 +130,59 @@ above, not via pytest.
 **The plan-key-cap check is non-atomic**, the same pre-existing class of
 race already noted below for the scan/GEO quotas (read-then-write, no row
 locking) -- not a new bug, just the same shape extended to a new counter.
+
+## CLI + GitHub Action (Phase 5b)
+
+A standalone Node/TypeScript package (`apps/cli`, bin name `seokit`) that
+authenticates with an `srk_live_...` API key (Phase 5a) instead of a Clerk
+session, and a composite GitHub Action (`.github/actions/seo-audit`) that
+wraps it for CI. Mirrors `apps/web/lib/api.ts`'s request/response shapes and
+polling condition field-for-field rather than reinventing them.
+
+| Component | Tests | Live-verified |
+|---|---|---|
+| `severity.ts` (`hasFindingAtOrAbove`, `isValidSeverity`) | 5 | Pure logic, no external calls needed |
+| `format.ts` (`formatAuditSummary`) | 2 | Pure logic, no external calls needed |
+| `client.ts`, `poll.ts`, `cli.ts` commands | none | Yes -- see below |
+| `.github/actions/seo-audit/action.yml` | none (can't trigger a real GH Actions run from here) | Partially -- see below |
+
+**What was verified**, against the same local Postgres + Redis used for
+Phase 5a, plus a render-sidecar and a `--pool=solo` Celery worker started for
+this session (neither runs by default in this dev environment) so a Page
+Crawl result could actually leave `"running"`: a test user + API key row
+inserted directly via SQL (as in Phase 5a); `seokit projects create
+example.com` and `seokit projects list` against the real API; `seokit audit
+run --project-id <id> --wait` correctly polled through a full real audit (13
+tools, ~13s, including waiting for the Celery-backed `page_crawl` result to
+leave `"running"`) and printed a per-tool summary; re-running with `--fail-on
+critical` exited 1 given the real `speed` tool's critical finding (no
+`PSI_API_KEY` configured, same known gap as Phase 4); `seokit audit get
+<id> --json` returned the raw API JSON unmodified; running without
+`SRK_API_KEY` set exited 1 with a clear error. `action.yml` was confirmed to
+be well-formed YAML (parsed with PyYAML) and its steps were manually
+replicated in a shell (`npm ci && npm run build && node dist/src/cli.js
+audit run ...`) to simulate what a runner would execute, since an actual
+GitHub Actions run can't be triggered from this environment.
+
+**What was not verified: an actual GitHub Actions run.** The composite
+action itself (`uses: pretyiman/iloveseo/.github/actions/seo-audit@main`)
+has never executed on a real GitHub-hosted runner -- only its constituent
+shell commands, run by hand, against the same local API. Before relying on
+this for a real CI gate, add a workflow that calls the action in this repo
+(or another) and confirm the job actually fails when `fail-on` is breached
+and succeeds otherwise.
+
+**No automated tests for `client.ts`/`poll.ts`/`cli.ts` command wiring** --
+consistent with the rest of this codebase's testing philosophy (pure logic
+gets unit tests, network/DB-touching code gets manual verification), and
+there's no existing HTTP-mocking convention on the Node side of this repo
+to build one on top of (neither `apps/web` nor `apps/render-sidecar` has any
+test framework at all).
+
+**No npm-registry publish.** The Action builds the CLI from source at the
+pinned ref on every run rather than installing a published package -- there's
+no hosted production API yet either (see gaps below), so a distribution
+decision for the CLI was deliberately deferred alongside it.
 
 ## Known gaps / not yet done
 

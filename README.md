@@ -16,8 +16,11 @@ apps/
   render-sidecar/  Node.js + Puppeteer + axe-core -- browser rendering for
                     JS-dependent tools (Mobile Test, Page Crawl, Accessibility)
   web/             Next.js dashboard + marketing site (Clerk auth)
+  cli/             Node/TypeScript CLI ("seokit") -- API-key auth, for CI/scripts
 infra/
   docker-compose.yml   postgres, redis, render-sidecar, api, worker, web
+.github/
+  actions/seo-audit/   composite GitHub Action wrapping the CLI for CI gating
 ```
 
 - **Backend**: FastAPI (Python), SQLAlchemy (async) + PostgreSQL, Alembic migrations
@@ -67,5 +70,8 @@ environment; see `docs/PROGRESS.md`).
 Phase 5a adds a public API: users can generate `srk_live_...` API keys
 (`/api-keys`) and use them in place of a Clerk session JWT on `/projects`,
 `/audits`, and `/geo`, gated by a per-plan key limit and a 60 requests/minute
-rate limiter. CLI/GitHub Action, teams/workspaces, and tools 10-13 are not
-yet started -- see `docs/PROGRESS.md` for what's verified vs. not.
+rate limiter. Phase 5b adds a CLI (`apps/cli`, see its README) and a
+composite GitHub Action (`.github/actions/seo-audit`) that authenticate with
+those API keys to run an audit and fail CI on findings at or above a chosen
+severity. Teams/workspaces and tools 10-13 are not yet started -- see
+`docs/PROGRESS.md` for what's verified vs. not.

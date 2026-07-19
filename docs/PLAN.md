@@ -108,7 +108,7 @@ discussion) -> teams/workspaces once solo-user traction is proven ->
 the original report's tools 10-13 via third-party data APIs once revenue
 justifies the licensing cost.
 
-*Phase 5a (public API + API keys) is done* -- see `docs/PROGRESS.md`.
-CLI/GitHub Action, teams/workspaces, and tools 10-13 are not yet started.
+*Phase 5a (public API + API keys) and 5b (CLI + GitHub Action) are done* --
+see `docs/PROGRESS.md`. Teams/workspaces and tools 10-13 are not yet started.
 
 See `docs/PROGRESS.md` for what's actually built and verified per phase.
