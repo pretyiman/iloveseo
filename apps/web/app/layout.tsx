@@ -29,8 +29,13 @@ export default function RootLayout({
         lang="en"
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
-        <body className="min-h-full flex flex-col bg-neutral-950 text-neutral-100">
-          {children}
+        {/* ClerkJS overwrites <body>'s className at runtime (observed: it
+            replaces it with "cl-component v6"), which silently drops any
+            Tailwind classes placed directly on <body> -- so the dark theme
+            background lives on this inner wrapper div instead, which Clerk
+            doesn't touch. */}
+        <body className="h-full">
+          <div className="flex min-h-screen flex-col bg-neutral-950 text-neutral-100">{children}</div>
         </body>
       </html>
     </ClerkProvider>

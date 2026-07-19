@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { use, useEffect, useRef, useState } from "react";
-import { useApiClient, type Audit, type Finding } from "@/lib/api";
+import { DashboardNav } from "../../_components/DashboardNav";
+import { ScoreBadge } from "../../_components/ScoreBadge";
+import { API_URL, useApiClient, type Audit, type AiVisibilityProvider, type AuditShare, type Finding } from "@/lib/api";
 
 const SEVERITY_ORDER: Finding["severity"][] = ["critical", "high", "medium", "low", "info"];
 
@@ -12,6 +15,139 @@ const SEVERITY_STYLES: Record<Finding["severity"], string> = {
   low: "bg-blue-950 text-blue-300 border-blue-800",
   info: "bg-neutral-800 text-neutral-400 border-neutral-700",
 };
+
+const PROVIDER_LABELS: Record<AiVisibilityProvider["provider"], string> = {
+  perplexity: "Perplexity",
+  openai: "OpenAI",
+};
+
+function AiVisibilityRow({ provider }: { provider: AiVisibilityProvider }) {
+  let chip: { label: string; className: string };
+  if (!provider.configured) {
+    chip = { label: "Not integrated", className: "bg-neutral-800 text-neutral-500 border-neutral-700" };
+  } else if (provider.status === null) {
+    chip = { label: "Not checked yet", className: "bg-neutral-800 text-neutral-400 border-neutral-700" };
+  } else if (provider.status === "error") {
+    chip = { label: "Not functional", className: "bg-amber-950 text-amber-300 border-amber-800" };
+  } else if (provider.cited) {
+    chip = {
+      label: `Cited${provider.position ? ` (#${provider.position})` : ""}`,
+      className: "bg-green-950 text-green-300 border-green-800",
+    };
+  } else {
+    chip = { label: "Not cited", className: "bg-neutral-800 text-neutral-400 border-neutral-700" };
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-neutral-800 px-3 py-2">
+      <span className="text-sm text-neutral-300">{PROVIDER_LABELS[provider.provider]}</span>
+      <div className="flex flex-col items-end gap-0.5">
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${chip.className}`}>
+          {chip.label}
+        </span>
+        {provider.status === "error" && provider.error_message && (
+          <span className="max-w-xs truncate text-right text-xs text-neutral-600" title={provider.error_message}>
+            {provider.error_message}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ShareAndExport({ auditId }: { auditId: string }) {
+  const api = useApiClient();
+  const [share, setShare] = useState<AuditShare | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function ensureShared(): Promise<AuditShare> {
+    if (share) return share;
+    const result = await api.shareAudit(auditId);
+    setShare(result);
+    return result;
+  }
+
+  async function handleCopyLink() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await ensureShared();
+      await navigator.clipboard.writeText(result.share_url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await ensureShared();
+      window.open(`${API_URL}/public/audits/${result.share_token}/pdf`, "_blank");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevoke() {
+    if (!share) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.revokeAuditShare(auditId);
+      setShare(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-8 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h2 className="mb-3 font-medium text-neutral-100">Share &amp; Export</h2>
+      <p className="mb-3 text-xs text-neutral-500">
+        Anyone with the link can view this report -- no account needed. Useful for sharing with a client or a
+        site's owner.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={handleCopyLink}
+          disabled={busy}
+          className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+        >
+          {copied ? "Copied!" : "Copy share link"}
+        </button>
+        <button
+          onClick={handleDownloadPdf}
+          disabled={busy}
+          className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+        >
+          Download PDF
+        </button>
+        {share && (
+          <button
+            onClick={handleRevoke}
+            disabled={busy}
+            className="rounded-full border border-neutral-800 px-3 py-1.5 text-xs text-neutral-500 hover:border-red-800 hover:text-red-400 disabled:opacity-50"
+          >
+            Revoke link
+          </button>
+        )}
+      </div>
+      {share && <p className="mt-2 truncate text-xs text-neutral-500">{share.share_url}</p>}
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -53,6 +189,7 @@ export default function AuditResultsPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
+      <DashboardNav />
       <h1 className="mb-2 text-2xl font-semibold text-neutral-50">Audit results</h1>
       {error && <p className="text-sm text-red-400">{error}</p>}
       {!audit && !error && <p className="text-sm text-neutral-500">Loading...</p>}
@@ -63,6 +200,30 @@ export default function AuditResultsPage({ params }: { params: Promise<{ id: str
             Status: <span className="font-medium text-neutral-200">{audit.status}</span>
             {audit.status === "running" && " -- results appear below as each tool finishes"}
           </p>
+
+          <ShareAndExport auditId={audit.id} />
+
+          {audit.ai_visibility && (
+            <div className="mb-8 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-medium text-neutral-100">AI Visibility</h2>
+                <Link
+                  href={`/dashboard/projects/${audit.project_id}/geo`}
+                  className="text-xs text-neutral-500 hover:text-neutral-300"
+                >
+                  Manage tracked query
+                </Link>
+              </div>
+              {audit.ai_visibility.query_text && (
+                <p className="mb-3 text-xs text-neutral-500">&ldquo;{audit.ai_visibility.query_text}&rdquo;</p>
+              )}
+              <div className="flex flex-col gap-2">
+                {audit.ai_visibility.providers.map((p) => (
+                  <AiVisibilityRow key={p.provider} provider={p} />
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mb-8 flex gap-3">
             {SEVERITY_ORDER.map((sev) => (
@@ -84,17 +245,15 @@ export default function AuditResultsPage({ params }: { params: Promise<{ id: str
                   {result.status === "running" ? (
                     <span className="text-sm text-neutral-400">Running...</span>
                   ) : (
-                    result.score !== null && (
-                      <span className="flex items-center gap-2 text-sm text-neutral-400">
-                        Score: {result.score}/100
-                        {result.diff?.score_delta != null && result.diff.score_delta !== 0 && (
-                          <span className={result.diff.score_delta > 0 ? "text-green-400" : "text-red-400"}>
-                            {result.diff.score_delta > 0 ? "+" : ""}
-                            {result.diff.score_delta}
-                          </span>
-                        )}
-                      </span>
-                    )
+                    <div className="flex items-center gap-2">
+                      {result.diff?.score_delta != null && result.diff.score_delta !== 0 && (
+                        <span className={`text-xs ${result.diff.score_delta > 0 ? "text-green-400" : "text-red-400"}`}>
+                          {result.diff.score_delta > 0 ? "+" : ""}
+                          {result.diff.score_delta}
+                        </span>
+                      )}
+                      <ScoreBadge score={result.score} size="sm" />
+                    </div>
                   )}
                 </div>
                 {result.diff && (result.diff.new_finding_codes.length > 0 || result.diff.resolved_finding_codes.length > 0) && (

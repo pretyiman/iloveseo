@@ -61,11 +61,10 @@ Tags, HTTP Headers, AI Crawler/llms.txt Checker, Redirect Chain Checker,
 Sitemap Finder, Website Speed Test (PSI), Website Technology Checker,
 Mobile Support Test, Page Crawl (site-wide), SSL/TLS + DNS Health Checker,
 hreflang Checker, Structured Data Validator, Accessibility Audit. Plus
-audit-over-time diffing, a project history view, and a GEO/AI Visibility
-tracker (Perplexity + OpenAI, on-demand citation checks against tracked
-queries) -- the GEO provider integrations are built and structurally
-verified but have not yet made a real API call (no keys configured in this
-environment; see `docs/PROGRESS.md`).
+audit-over-time diffing, and a GEO/AI Visibility tracker (Perplexity +
+OpenAI citation checks) -- OpenAI has now made a real API call (surfacing a
+real billing/quota error, see `docs/PROGRESS.md`); Perplexity is still
+untested (no key configured).
 
 Phase 5a adds a public API: users can generate `srk_live_...` API keys
 (`/api-keys`) and use them in place of a Clerk session JWT on `/projects`,
@@ -75,3 +74,12 @@ composite GitHub Action (`.github/actions/seo-audit`) that authenticate with
 those API keys to run an audit and fail CI on findings at or above a chosen
 severity. Teams/workspaces and tools 10-13 are not yet started -- see
 `docs/PROGRESS.md` for what's verified vs. not.
+
+The dashboard has since been redesigned around a single "Audit" action
+(paste a URL, get one compiled report that automatically includes AI
+Visibility) instead of separate per-site History/AI-Visibility/Run-audit
+buttons, plus a new History & Compare page supporting both your-own-history
+comparisons and full 13-tool side-by-side comparisons against a freshly
+audited competitor domain -- see `docs/PROGRESS.md` for details and the one
+UI section (the report page's AI Visibility display) not yet screenshotted
+in a live session.

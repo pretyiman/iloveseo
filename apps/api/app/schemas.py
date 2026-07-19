@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 class ProjectCreate(BaseModel):
     domain: str
     brand_name: str | None = None
+    is_competitor_only: bool = False
 
 
 class ProjectOut(BaseModel):
@@ -35,6 +36,21 @@ class AuditResultOut(BaseModel):
     created_at: datetime
 
 
+class AiVisibilityProviderOut(BaseModel):
+    provider: str
+    configured: bool
+    status: str | None = None
+    cited: bool | None = None
+    position: int | None = None
+    error_message: str | None = None
+    checked_at: datetime | None = None
+
+
+class AiVisibilityOut(BaseModel):
+    query_text: str | None = None
+    providers: list[AiVisibilityProviderOut] = []
+
+
 class AuditOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,6 +60,7 @@ class AuditOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     results: list[AuditResultOut] = []
+    ai_visibility: AiVisibilityOut | None = None
 
 
 class AuditSummaryOut(BaseModel):
@@ -85,6 +102,17 @@ class GeoCheckOut(BaseModel):
     response_text: str | None
     error_message: str | None
     created_at: datetime
+
+
+class AuditCompareOut(BaseModel):
+    audit_a: AuditOut
+    audit_b: AuditOut
+    diff_by_tool: dict[str, dict | None]
+
+
+class AuditShareOut(BaseModel):
+    share_token: str
+    share_url: str
 
 
 class ApiKeyCreate(BaseModel):

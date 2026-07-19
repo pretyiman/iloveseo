@@ -29,6 +29,10 @@ class Audit(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Null = not shared. Non-null grants anyone with the link read-only
+    # access via GET /public/audits/{share_token} -- not a hashed secret
+    # like an API key, just an unguessable "anyone with this link" grant.
+    share_token: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
 
 
 class AuditResult(Base):

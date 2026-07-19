@@ -43,3 +43,15 @@ async def run_accessibility_scan(url: str, device: str | None = None, timeout_ms
         return resp.json()
     except httpx.HTTPError as exc:
         raise RenderError(str(exc)) from exc
+
+
+async def render_pdf(url: str, timeout_ms: int = 20000) -> bytes:
+    settings = get_settings()
+    payload = {"url": url, "timeout_ms": timeout_ms}
+    try:
+        async with httpx.AsyncClient(timeout=(timeout_ms / 1000) + 10) as client:
+            resp = await client.post(f"{settings.render_sidecar_url}/pdf", json=payload)
+        resp.raise_for_status()
+        return resp.content
+    except httpx.HTTPError as exc:
+        raise RenderError(str(exc)) from exc

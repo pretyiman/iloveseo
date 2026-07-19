@@ -6,6 +6,8 @@ import app.services.tools  # noqa: F401  (import triggers @register_tool side ef
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.models.audit import Audit, AuditResult
+from app.models.project import Project
+from app.services.geo.auto_check import run_default_geo_check
 from app.services.tools.base import TOOL_REGISTRY
 from app.tasks import run_page_crawl_task
 
@@ -24,11 +26,17 @@ async def run_audit(audit_id: uuid.UUID, domain: str) -> None:
     off immediately, before the fast batch, so it isn't delayed by it -- but
     the overall Audit.status flips to "completed" as soon as the fast batch
     finishes, regardless of whether the crawl is still running.
+
+    After the fast batch, also runs a best-effort AI Visibility (GEO) check
+    for the project (see app/services/geo/auto_check.py) -- folded into every
+    audit rather than a separate manual step, per product decision. Never
+    allowed to fail or delay the audit itself.
     """
     async with SessionLocal() as db:
         audit = await db.get(Audit, audit_id)
         if audit is None:
             return
+        project = await db.get(Project, audit.project_id)
         audit.status = "running"
 
         crawl_result = AuditResult(
@@ -75,6 +83,9 @@ async def run_audit(audit_id: uuid.UUID, domain: str) -> None:
                 await write_db.commit()
 
         await asyncio.gather(*(run_one(name, fn) for name, fn in TOOL_REGISTRY.items()))
+
+        if project is not None:
+            await run_default_geo_check(db, project)
 
         audit.status = "completed"
         audit.completed_at = datetime.now(UTC)

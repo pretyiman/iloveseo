@@ -30,7 +30,12 @@ async def create_project(
     user: User = Depends(get_current_user_or_api_key),
     _: None = Depends(enforce_rate_limit),
 ) -> Project:
-    project = Project(user_id=user.id, domain=_normalize_domain(payload.domain), brand_name=payload.brand_name)
+    project = Project(
+        user_id=user.id,
+        domain=_normalize_domain(payload.domain),
+        brand_name=payload.brand_name,
+        is_competitor_only=payload.is_competitor_only,
+    )
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -43,7 +48,11 @@ async def list_projects(
     user: User = Depends(get_current_user_or_api_key),
     _: None = Depends(enforce_rate_limit),
 ) -> list[Project]:
-    result = await db.scalars(select(Project).where(Project.user_id == user.id).order_by(Project.created_at.desc()))
+    result = await db.scalars(
+        select(Project)
+        .where(Project.user_id == user.id, Project.is_competitor_only.is_(False))
+        .order_by(Project.created_at.desc())
+    )
     return list(result)
 
 

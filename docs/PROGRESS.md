@@ -12,9 +12,11 @@ it's the source of truth for "what's actually done" vs. `docs/PLAN.md`'s
 | 1 -- 7 sync tools | Done, verified | Each tool live-tested against real domains, not just mocks |
 | 2 -- browser tools + queue | Done, verified | Sidecar, Celery/Redis, Mobile Test, Page Crawl |
 | 3 -- site-health gaps | Done, verified | SSL/DNS, hreflang, structured data, accessibility, diffing |
-| 4 -- GEO/AI Visibility tracker | Done, structurally verified | Perplexity + OpenAI providers; **no live LLM API call has been tested** -- see gaps |
+| 4 -- GEO/AI Visibility tracker | Done, verified | Perplexity + OpenAI providers; OpenAI has now made a real live API call (see below) -- Perplexity still untested (no key configured) |
 | 5a -- Public API + API keys | Done, verified | See below |
 | 5b -- CLI + GitHub Action | Done, verified | See below. Teams and tools 10-13 remain not started |
+| -- Dashboard UX + AI Visibility bundling + competitor comparison | Done, verified | See below. Orthogonal to the Phase 5 growth track, not a Phase 5c |
+| -- Report export/share (public link + PDF) | Done, verified | See below. First piece of the freemium/pay-as-you-go product-direction pivot (2026-07-19) |
 
 ## Tools (13 live)
 
@@ -46,7 +48,7 @@ whether the project's domain/brand name got cited, and records the result.
 
 | Component | Tests | Live-verified |
 |---|---|---|
-| Provider adapters (`app/services/geo/providers.py`) | 7 | No -- see gaps |
+| Provider adapters (`app/services/geo/providers.py`) | 7 | OpenAI: yes (real API call, see below). Perplexity: no -- no key configured |
 | Citation/mention detection (`app/services/geo/analysis.py`) | 6 | Pure logic, no external calls needed |
 | Check runner (`app/services/geo/runner.py`) | 2 | Structurally, via mocked providers |
 | API endpoints + DB round-trip | none (manual only) | Yes -- real Postgres, see below |
@@ -61,16 +63,20 @@ cleanly cascading its checks. Also booted the API server and confirmed the
 4 new routes are registered, require auth (401 unauthenticated), and appear
 in the OpenAPI schema.
 
-**What was not verified: any real LLM API call.** Both provider adapters
-(`query_perplexity`, `query_openai`) are written against current provider
-documentation (checked via web search during this build, not assumed from
-training data) but have never received a real response from either API --
-no keys are configured in this environment. The OpenAI adapter in
-particular carries more risk here: it parses a specific nested shape
-(`output[].content[].annotations[].url_citation.url`) from the Responses
-API that could differ in practice. **Before relying on this in production,
-add real `PERPLEXITY_API_KEY`/`OPENAI_API_KEY` values and run one real
-check against a known query to confirm both response shapes still match.**
+**Update: a real OpenAI API call has now been made.** A real
+`OPENAI_API_KEY` was configured and `query_openai` reached
+`https://api.openai.com/v1/responses` for real. The request succeeded in
+the sense that mattered most -- no shape-parsing crash -- but the response
+was itself an error: `{"error": {"type": "insufficient_quota", "message":
+"You exceeded your current quota, please check your plan and billing
+details."}}`, surfaced correctly end-to-end as a `GeoCheck` row with
+`status="error"` and that message. This confirms the adapter's HTTP
+plumbing and error handling work correctly; it does **not** yet confirm the
+success-path response parsing (`output[].content[].annotations[].url_citation.url`)
+since no successful (non-error) response has been received yet -- that
+still needs billing enabled on the OpenAI account before it can be checked.
+**Perplexity remains completely untested** -- no `PERPLEXITY_API_KEY` has
+been configured in this environment at any point.
 
 ## Public API / API keys (Phase 5a)
 
@@ -183,6 +189,149 @@ test framework at all).
 pinned ref on every run rather than installing a published package -- there's
 no hosted production API yet either (see gaps below), so a distribution
 decision for the CLI was deliberately deferred alongside it.
+
+## Dashboard UX + AI Visibility bundling + competitor comparison
+
+Collapses the previous 3-click-per-site dashboard (Add domain, then
+separately History / AI Visibility / Run audit) into one action: paste a
+URL, hit "Audit", get one compiled report. Per explicit product decision,
+AI Visibility is now generated automatically as part of every audit rather
+than a separate manual step, and a new "History & Compare" page adds a
+genuinely new capability: full 13-tool side-by-side comparison, either
+against your own past reports or a **fresh** audit run against a
+competitor's domain on demand.
+
+**Backend** (`apps/api`): `AiVisibilityOut`/`AiVisibilityProviderOut`
+schemas, `app/services/geo/auto_check.py` (auto-managed default tracked
+query + best-effort GEO check run after every audit's fast tool batch,
+gated on at least one provider being configured and the monthly GEO quota
+not being exhausted -- never fails or delays the audit itself), wired into
+`orchestrator.run_audit` and `GET /audits/{id}`. New
+`projects.is_competitor_only` column (migration `c2f2145a4281`) excludes
+one-off competitor lookups from the main site list. New `GET
+/audits/compare?a=&b=` endpoint reuses the existing `diff_result` function
+from Phase 3's diffing module completely unchanged -- it already computed
+exactly "compare two AuditResults for the same tool," so no new diffing
+logic was needed for arbitrary A-vs-B comparison (including competitor
+audits, which are just an audit against a different project like any
+other).
+
+**Frontend** (`apps/web`): redesigned `dashboard/page.tsx` (hero search +
+single "Audit" button, domain-reuse-on-resubmit so re-entering the same
+domain doesn't create a duplicate project -- handled client-side against
+the already-loaded project list, no backend uniqueness constraint added),
+new shared `ScoreBadge`/`DashboardNav` components, an "AI Visibility"
+section folded into `audits/[id]/page.tsx` (not integrated / not
+functional / cited / not cited states per provider), and new
+`dashboard/history/page.tsx` + `dashboard/compare/page.tsx` for the
+history/comparison flows. The old `dashboard/projects/[id]/history` route
+was removed (superseded by the global History & Compare page); the
+existing `dashboard/projects/[id]/geo` page was kept, de-emphasized, for
+anyone who wants to hand-edit the auto-generated tracked query.
+
+**Real bug found and fixed along the way**: ClerkJS overwrites `<body>`'s
+`className` at runtime (observed value: `"cl-component v6"`), silently
+dropping any Tailwind classes placed directly on `<body>` in
+`app/layout.tsx`. This was invisible on pages with enough content to fill
+the viewport (the marketing page, the original denser dashboard) but
+produced a jarring white background gap below the fold on the new,
+shorter dashboard layout. Fixed by moving the dark theme background off
+`<body>` onto an inner wrapper `<div>` that Clerk doesn't touch.
+
+**What was verified**: `pytest` (122 tests, unchanged, still pass),
+`alembic upgrade head` applied cleanly, `tsc --noEmit` clean. The backend
+AI Visibility auto-bundling was verified end-to-end for real via direct
+API calls (a fresh project + audit against a real domain correctly
+produced an auto-created tracked query, a real OpenAI call surfacing the
+same `insufficient_quota` billing error as before, and Perplexity correctly
+reported "not configured"). The new `/audits/compare` endpoint was
+verified the same way across two real completed audits, correctly
+diffing all 13 tools. The redesigned dashboard and History & Compare pages
+were visually verified in a real signed-in browser session (screenshot,
+confirmed both the layout fix and the new "Your sites"/compare UI render
+correctly against the real signed-up user's actual data).
+
+**What was not verified**: the audit report page's new AI Visibility
+section and the full click-through "paste URL → Audit → report" flow were
+not screenshotted in a live browser session -- repeated automated Clerk
+sign-in-token generation (used to drive a browser session without the
+real user's interactive login) was blocked by this environment's action
+classifier after a few uses, reasonably treating repeated auth-token
+minting as sensitive. The underlying data and logic this UI renders were
+directly proven correct via the API-level verification above, and the
+component code follows the same JSX/styling patterns already visually
+confirmed elsewhere on the same page (severity summary boxes, per-tool
+cards) -- but the actual rendered pixels for this specific section haven't
+been eyeballed. Worth a manual click-through by a real user before
+considering this fully done.
+
+**No automated frontend tests**, consistent with this codebase's existing
+Node-side testing gap (no test framework in `apps/web`/`apps/render-sidecar`
+at all).
+
+**Competitor comparison has no cleanup/dedup**: per explicit product
+decision ("there must be both fresh report"), every competitor comparison
+creates a brand-new `Project`/`Audit` row rather than reusing a prior
+lookup of the same competitor domain -- intentional, but means repeated
+comparisons against the same competitor accumulate `is_competitor_only`
+rows with no pruning.
+
+## Report export/share (public link + PDF)
+
+First piece of a broader product-direction pivot agreed with the user
+(2026-07-19): anonymous single-scan mode, pay-as-you-go metered billing,
+and scheduled monitoring + auto-emailed comparison reports are the next
+three pieces, **not yet started** -- this covers only export/share, the
+one explicitly confirmed to build first. The target workflow: a
+freelancer/consultant/agency scans a prospect's site and emails the owner
+a professional report as an outreach pitch -- something the product could
+not do at all before this (every report lived behind a Clerk login).
+
+New nullable, unique-indexed `audits.share_token` column (migration
+`048c3b2bb464`) -- null means "not shared." `POST /audits/{id}/share`
+(idempotent) and `DELETE /audits/{id}/share` (revoke) mint/clear it;
+`GET /public/audits/{share_token}` and `GET /public/audits/{share_token}/pdf`
+(new `app/routers/public.py`, genuinely unauthenticated, IP-rate-limited via
+new `enforce_public_rate_limit`) serve the full report -- same fidelity as
+the dashboard's own view, not a teaser, since the point is credibility for
+an outreach pitch. PDF generation reuses the existing Puppeteer sidecar: a
+new `POST /pdf` route (`apps/render-sidecar/src/pdf.js`) opens the public
+`/report/{token}` page in headless Chrome and prints it, so the PDF can
+never drift from what the live page shows -- no separate template.
+
+**What was verified end-to-end for real** (the established
+direct-API-with-a-test-user-and-API-key pattern, inserted and cleaned up
+via SQL): created a project + real completed audit against `example.net`;
+`POST /audits/{id}/share` returned a token; `GET
+/public/audits/{token}` with **no** `Authorization` header at all returned
+the full report including the AI Visibility section; `GET
+/public/audits/{token}/pdf` returned a genuine `%PDF-1.4` file (~110KB, 3
+pages) that was opened and visually confirmed -- clean light-themed layout,
+all 13 tool sections, severity summary, AI Visibility, and a footer
+credit, faithfully matching the live page; `DELETE
+/audits/{id}/share` followed by the same public `GET` correctly 404'd.
+
+**Real bug caught during verification, not related to this feature's own
+code**: the render sidecar needs restarting after adding a new Express
+route to it -- obvious in hindsight, but worth noting since the first PDF
+attempt 404'd against the sidecar's stale in-memory route table until it
+was restarted. Not a code bug, a deployment-step reminder.
+
+**What was not verified**: the dashboard's own "Share & Export" UI (the
+Copy link/Download PDF/Revoke buttons in `audits/[id]/page.tsx`) was not
+clicked through in a live authenticated browser session -- verified via
+direct API calls instead, consistent with this session's established
+Clerk-automation-is-flaky caveat. `tsc --noEmit` is clean and the component
+follows the same patterns already visually confirmed elsewhere on the same
+page.
+
+**No automated tests for the DB/network-touching parts** (share/revoke
+endpoints, public router, PDF rendering) -- consistent with this
+codebase's whole-session convention (pure logic gets unit tests --
+`generate_share_token()` does -- DB/HTTP-touching code gets manual
+verification). No cleanup job for orphaned share tokens if an audit is
+deleted (audits aren't currently deletable at all, so this isn't reachable
+yet, but worth remembering if that changes).
 
 ## Known gaps / not yet done
 

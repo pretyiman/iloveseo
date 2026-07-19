@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     render_sidecar_url: str = "http://localhost:4000"
 
+    # The backend's-eye view of where the Next.js app is reachable --
+    # symmetric with the frontend's own NEXT_PUBLIC_API_URL. Used to build
+    # public share links and to tell the render sidecar what URL to print
+    # to PDF (the sidecar can't reach a Clerk-authenticated page, only a
+    # public one served from this base).
+    web_public_url: str = "http://localhost:3000"
+
     # Phase 1 tools run inline in a FastAPI BackgroundTask; Phase 2's
     # browser-driven tools (Page Crawl) run as Celery tasks instead since a
     # full-site crawl can take minutes and needs its own progress tracking.

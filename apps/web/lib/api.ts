@@ -3,7 +3,7 @@
 import { useAuth } from "@clerk/nextjs";
 import { useCallback } from "react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export type Project = {
   id: string;
@@ -59,6 +59,21 @@ export type AuditResult = {
   created_at: string;
 };
 
+export type AiVisibilityProvider = {
+  provider: "perplexity" | "openai";
+  configured: boolean;
+  status: "ok" | "error" | null;
+  cited: boolean | null;
+  position: number | null;
+  error_message: string | null;
+  checked_at: string | null;
+};
+
+export type AiVisibility = {
+  query_text: string | null;
+  providers: AiVisibilityProvider[];
+};
+
 export type Audit = {
   id: string;
   project_id: string;
@@ -66,6 +81,13 @@ export type Audit = {
   created_at: string;
   completed_at: string | null;
   results: AuditResult[];
+  ai_visibility: AiVisibility | null;
+};
+
+export type AuditCompare = {
+  audit_a: Audit;
+  audit_b: Audit;
+  diff_by_tool: Record<string, AuditDiff | null>;
 };
 
 export type AuditSummary = {
@@ -73,6 +95,11 @@ export type AuditSummary = {
   status: Audit["status"];
   created_at: string;
   completed_at: string | null;
+};
+
+export type AuditShare = {
+  share_token: string;
+  share_url: string;
 };
 
 /** Thin authenticated fetch wrapper -- attaches the Clerk session token to
@@ -105,11 +132,17 @@ export function useApiClient() {
 
   return {
     listProjects: () => request<Project[]>("/projects"),
-    createProject: (domain: string, brandName?: string) =>
-      request<Project>("/projects", { method: "POST", body: JSON.stringify({ domain, brand_name: brandName || null }) }),
+    createProject: (domain: string, brandName?: string, isCompetitorOnly = false) =>
+      request<Project>("/projects", {
+        method: "POST",
+        body: JSON.stringify({ domain, brand_name: brandName || null, is_competitor_only: isCompetitorOnly }),
+      }),
     createAudit: (projectId: string) =>
       request<Audit>("/audits", { method: "POST", body: JSON.stringify({ project_id: projectId }) }),
     getAudit: (auditId: string) => request<Audit>(`/audits/${auditId}`),
+    compareAudits: (a: string, b: string) => request<AuditCompare>(`/audits/compare?a=${a}&b=${b}`),
+    shareAudit: (auditId: string) => request<AuditShare>(`/audits/${auditId}/share`, { method: "POST" }),
+    revokeAuditShare: (auditId: string) => request<void>(`/audits/${auditId}/share`, { method: "DELETE" }),
     listProjectAudits: (projectId: string) => request<AuditSummary[]>(`/projects/${projectId}/audits`),
     listTrackedQueries: (projectId: string) => request<TrackedQuery[]>(`/projects/${projectId}/tracked-queries`),
     createTrackedQuery: (projectId: string, queryText: string, competitorDomains: string[]) =>
