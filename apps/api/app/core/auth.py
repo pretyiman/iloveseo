@@ -3,6 +3,7 @@ from fastapi import Depends, HTTPException, Request, status
 from jwt import PyJWKClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.api_keys import KEY_PREFIX, resolve_api_key
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.user import User
@@ -25,12 +26,14 @@ def _get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+def _get_bearer_token(request: Request) -> str:
     auth_header = request.headers.get("authorization", "")
     if not auth_header.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
-    token = auth_header.split(" ", 1)[1]
+    return auth_header.split(" ", 1)[1]
 
+
+async def _verify_clerk_jwt(token: str, db: AsyncSession) -> User:
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
         claims = jwt.decode(
@@ -56,3 +59,25 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
         await db.commit()
         await db.refresh(user)
     return user
+
+
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Clerk session auth only -- used by routes that must not be
+    reachable with an API key (e.g. creating/revoking API keys themselves,
+    to avoid a key being able to mint further keys)."""
+    token = _get_bearer_token(request)
+    return await _verify_clerk_jwt(token, db)
+
+
+async def get_current_user_or_api_key(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> User:
+    """Accepts either a Clerk session JWT (dashboard) or an API key
+    (`srk_live_...`, external/CLI callers) on the same endpoints."""
+    token = _get_bearer_token(request)
+    if token.startswith(KEY_PREFIX):
+        user = await resolve_api_key(db, token)
+        if user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked API key")
+        return user
+    return await _verify_clerk_jwt(token, db)

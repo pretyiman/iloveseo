@@ -85,3 +85,27 @@ class GeoCheckOut(BaseModel):
     response_text: str | None
     error_message: str | None
     created_at: datetime
+
+
+class ApiKeyCreate(BaseModel):
+    name: str
+
+
+class ApiKeyCreated(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    key_prefix: str
+    key: str  # raw key -- present only on the create response, never again
+    created_at: datetime
+
+
+class ApiKeyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    key_prefix: str
+    created_at: datetime
+    last_used_at: datetime | None

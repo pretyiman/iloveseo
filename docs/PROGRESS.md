@@ -13,7 +13,7 @@ it's the source of truth for "what's actually done" vs. `docs/PLAN.md`'s
 | 2 -- browser tools + queue | Done, verified | Sidecar, Celery/Redis, Mobile Test, Page Crawl |
 | 3 -- site-health gaps | Done, verified | SSL/DNS, hreflang, structured data, accessibility, diffing |
 | 4 -- GEO/AI Visibility tracker | Done, structurally verified | Perplexity + OpenAI providers; **no live LLM API call has been tested** -- see gaps |
-| 5 -- Growth (API, CLI, teams, tools 10-13) | Not started | |
+| 5a -- Public API + API keys | Done, verified | See below. CLI/GitHub Action, teams, and tools 10-13 remain not started |
 
 ## Tools (13 live)
 
@@ -71,6 +71,65 @@ API that could differ in practice. **Before relying on this in production,
 add real `PERPLEXITY_API_KEY`/`OPENAI_API_KEY` values and run one real
 check against a known query to confirm both response shapes still match.**
 
+## Public API / API keys (Phase 5a)
+
+Lets external callers (a future CLI/GitHub Action, or scripts) authenticate
+with a long-lived key instead of a Clerk session JWT. Deliberately extends
+the *existing* dashboard routers (`/projects`, `/audits`, `/geo`) rather
+than duplicating them into a separate route tree -- one code path serves
+both dashboard and API-key traffic, since external callers need the same
+operations (create project, start audit, poll results) the dashboard
+already exposes.
+
+| Component | Tests | Live-verified |
+|---|---|---|
+| Key generation/hashing (`app/core/api_keys.py`) | 3 | Pure logic, no external calls needed |
+| Combined auth dependency (`get_current_user_or_api_key`, `app/core/auth.py`) | none | Yes -- see below |
+| Rate limiter (`app/core/rate_limit.py`) | none | Yes -- see below |
+| `check_api_key_limit` (`app/core/plan_limits.py`) | none | Yes -- see below |
+| `/api-keys` router (create/list/revoke) | none | Partially -- see below |
+
+**What was verified**, against a real Postgres + Redis with no Clerk keys
+configured (a test user and API key row were inserted directly via SQL,
+then deleted afterward -- Clerk itself was never exercised, `/api-keys`'
+own create/list/revoke endpoints require a real Clerk JWT and were **not**
+called over HTTP this session, only their underlying logic):
+booted the API server and confirmed `/api-keys` (POST/GET, `/api-keys/{id}`
+DELETE) are registered and appear in the OpenAPI schema; calling
+`GET /projects` with no `Authorization` header returns 401; calling it with
+a valid `srk_live_...` key returns 200 with the expected data; calling it
+with a garbage key returns 401 ("Invalid or revoked API key"); revoking a
+key (`revoked_at` set) makes the same key 401 on the next call; firing 65
+rapid requests with one key against `/projects` returns 200 for the first
+60 and 429 for the rest, confirming the Redis-backed fixed-window limiter
+(`app/core/rate_limit.py`, `rate_limit_per_minute=60`); calling
+`check_api_key_limit` directly against a free-plan user who already holds
+one active key raises 402, confirming the per-plan cap
+(`PLAN_API_KEY_LIMITS`).
+
+**What was not verified: the `/api-keys` create/list/revoke endpoints
+themselves over HTTP.** They require `get_current_user` (Clerk-only, by
+design -- a key must not be able to mint further keys), and no Clerk
+instance is configured in this environment. Their logic (plan-cap check,
+row creation, soft revoke via `revoked_at`) was verified indirectly by
+calling `check_api_key_limit` directly and by inserting/revoking API key
+rows via SQL to exercise the auth dependency, but the actual route
+handlers in `app/routers/api_keys.py` have not been hit over HTTP with a
+real Clerk session. Before relying on this in production, create a real
+Clerk account, obtain a session JWT, and confirm `POST /api-keys` returns
+the raw key exactly once and `GET /api-keys` never returns it again.
+
+**No automated route-level test coverage**, consistent with the rest of
+this codebase (no FastAPI `TestClient`/`conftest.py` scaffolding exists
+anywhere yet -- see the pre-existing orchestrator/diffing gap below). Only
+the pure key-generation/hashing logic has unit tests; the auth dependency,
+rate limiter, and plan-cap check were exercised manually as described
+above, not via pytest.
+
+**The plan-key-cap check is non-atomic**, the same pre-existing class of
+race already noted below for the scan/GEO quotas (read-then-write, no row
+locking) -- not a new bug, just the same shape extended to a new counter.
+
 ## Known gaps / not yet done
 
 **Billing is one-directional.** The Stripe webhook consumer
@@ -93,10 +152,12 @@ chosen (Railway/Fly.io/VPS -- see the open items in the original SaaS plan).
 **Single-user project ownership.** No teams/workspaces -- `projects.user_id`
 is a straight FK, no multi-seat concept. Planned for Phase 5.
 
-**No API-level rate limiting beyond plan quota.** `check_and_increment_usage`
-enforces the monthly scan quota, but there's nothing stopping e.g. rapid-fire
-requests within quota from one user hammering target sites -- worth adding
-per-request throttling before this is public.
+**API-level rate limiting was added in Phase 5a** (`app/core/rate_limit.py`,
+60 requests/minute per user via Redis fixed window) on the routes reachable
+via `get_current_user_or_api_key` (`/projects`, `/audits`, `/geo`). The
+`/api-keys` management endpoints themselves (Clerk-only) are not
+rate-limited, on the assumption that dashboard-authenticated key management
+isn't the abuse surface a public API needs guarding against.
 
 **Orchestrator and the DB-querying half of diffing have no automated tests.**
 `diff_result` itself (the pure comparison logic) has 4 unit tests, but

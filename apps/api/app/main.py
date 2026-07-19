@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.routers import audits, billing, geo, health, projects
+from app.routers import api_keys, audits, billing, geo, health, projects
 
 settings = get_settings()
 
@@ -21,3 +21,4 @@ app.include_router(projects.router)
 app.include_router(audits.router)
 app.include_router(billing.router)
 app.include_router(geo.router)
+app.include_router(api_keys.router)

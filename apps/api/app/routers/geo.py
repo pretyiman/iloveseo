@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user_or_api_key
 from app.core.db import get_db
 from app.core.plan_limits import check_and_increment_geo_usage
+from app.core.rate_limit import enforce_rate_limit
 from app.models.geo import GeoCheck, TrackedQuery
 from app.models.project import Project
 from app.models.user import User
@@ -40,7 +41,8 @@ async def create_tracked_query(
     project_id: uuid.UUID,
     payload: TrackedQueryCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_api_key),
+    _: None = Depends(enforce_rate_limit),
 ) -> TrackedQuery:
     await _get_owned_project(db, user, project_id)
     tracked_query = TrackedQuery(
@@ -56,7 +58,8 @@ async def create_tracked_query(
 async def list_tracked_queries(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_api_key),
+    _: None = Depends(enforce_rate_limit),
 ) -> list[TrackedQuery]:
     await _get_owned_project(db, user, project_id)
     result = await db.scalars(
@@ -69,7 +72,8 @@ async def list_tracked_queries(
 async def delete_tracked_query(
     tracked_query_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_api_key),
+    _: None = Depends(enforce_rate_limit),
 ) -> None:
     tracked_query, _ = await _get_owned_tracked_query(db, user, tracked_query_id)
     await db.delete(tracked_query)
@@ -80,7 +84,8 @@ async def delete_tracked_query(
 async def run_check(
     tracked_query_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_api_key),
+    _: None = Depends(enforce_rate_limit),
 ) -> list[GeoCheck]:
     tracked_query, project = await _get_owned_tracked_query(db, user, tracked_query_id)
     await check_and_increment_geo_usage(db, user)
@@ -114,7 +119,8 @@ async def run_check(
 async def list_checks(
     tracked_query_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_api_key),
+    _: None = Depends(enforce_rate_limit),
 ) -> list[GeoCheck]:
     await _get_owned_tracked_query(db, user, tracked_query_id)
     result = await db.scalars(

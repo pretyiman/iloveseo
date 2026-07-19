@@ -101,10 +101,14 @@ real per-call money against paid provider APIs, so they're metered against
 a separate, tighter monthly quota (`geo_checks_used`) than the free
 HTTP-based audit scans.
 
-**Phase 5 -- growth (not started).** Public API + API keys, GitHub
-Action/CLI for CI/CD integration (the "necessary infrastructure" positioning
-from the original discussion), the original report's tools 10-13 via
-third-party data APIs once revenue justifies the licensing cost, and
-teams/workspaces once solo-user traction is proven.
+**Phase 5 -- growth.** Sequenced as: API keys first (nothing else in this
+phase has anything to call without it) -> CLI/GitHub Action for CI/CD
+integration (the "necessary infrastructure" positioning from the original
+discussion) -> teams/workspaces once solo-user traction is proven ->
+the original report's tools 10-13 via third-party data APIs once revenue
+justifies the licensing cost.
+
+*Phase 5a (public API + API keys) is done* -- see `docs/PROGRESS.md`.
+CLI/GitHub Action, teams/workspaces, and tools 10-13 are not yet started.
 
 See `docs/PROGRESS.md` for what's actually built and verified per phase.

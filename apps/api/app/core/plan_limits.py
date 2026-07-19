@@ -1,9 +1,10 @@
 from datetime import date
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.api_key import ApiKey
 from app.models.subscription import Subscription
 from app.models.usage import UsageCounter
 from app.models.user import User
@@ -24,6 +25,14 @@ PLAN_GEO_CHECK_LIMITS = {
     "free": 5,
     "pro": 100,
     "agency": 1000,
+}
+
+# Active (non-revoked) API keys a user may hold at once -- not a monthly
+# counter like the two above, just a ceiling checked at creation time.
+PLAN_API_KEY_LIMITS = {
+    "free": 1,
+    "pro": 5,
+    "agency": 20,
 }
 
 
@@ -87,3 +96,25 @@ async def check_and_increment_geo_usage(db: AsyncSession, user: User) -> None:
 
     counter.geo_checks_used += 1
     await db.commit()
+
+
+async def check_api_key_limit(db: AsyncSession, user: User) -> None:
+    """Raises 402 if the user already holds the max active API keys for
+    their plan. Unlike the scan/GEO quotas, this doesn't increment
+    anything -- creating the ApiKey row itself is the state change."""
+
+    plan = await _current_plan(db, user)
+    limit = PLAN_API_KEY_LIMITS.get(plan, PLAN_API_KEY_LIMITS["free"])
+
+    active_count = await db.scalar(
+        select(func.count())
+        .select_from(ApiKey)
+        .where(ApiKey.user_id == user.id, ApiKey.revoked_at.is_(None))
+    )
+
+    if active_count >= limit:
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            f"Active API key limit reached for the '{plan}' plan ({limit} keys). "
+            "Revoke an existing key before creating a new one.",
+        )

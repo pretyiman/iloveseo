@@ -63,3 +63,9 @@ tracker (Perplexity + OpenAI, on-demand citation checks against tracked
 queries) -- the GEO provider integrations are built and structurally
 verified but have not yet made a real API call (no keys configured in this
 environment; see `docs/PROGRESS.md`).
+
+Phase 5a adds a public API: users can generate `srk_live_...` API keys
+(`/api-keys`) and use them in place of a Clerk session JWT on `/projects`,
+`/audits`, and `/geo`, gated by a per-plan key limit and a 60 requests/minute
+rate limiter. CLI/GitHub Action, teams/workspaces, and tools 10-13 are not
+yet started -- see `docs/PROGRESS.md` for what's verified vs. not.

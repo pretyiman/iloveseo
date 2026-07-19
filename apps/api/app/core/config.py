@@ -39,6 +39,11 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Applies to every request authenticated via get_current_user_or_api_key
+    # (dashboard + API-key traffic alike) -- a fixed window per user, not
+    # per key, so a user can't dodge it by rotating keys.
+    rate_limit_per_minute: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:
