@@ -118,6 +118,20 @@ async def test_missing_field_data_is_info_only(monkeypatch):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_opportunity_surfaced_as_info_finding(monkeypatch):
+    monkeypatch.setattr(speed_module, "get_settings", _fake_settings)
+    respx.get(speed_module.PSI_ENDPOINT).mock(return_value=httpx.Response(200, json=_psi_response()))
+
+    result = await run("example.com")
+
+    matches = [f for f in result.findings if f.code == "opportunity_render-blocking-resources"]
+    assert len(matches) == 1
+    assert matches[0].severity == "info"
+    assert matches[0].message == "Improvement opportunity: Eliminate render-blocking resources"
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_psi_error_response_returns_error_status(monkeypatch):
     monkeypatch.setattr(speed_module, "get_settings", _fake_settings)
     respx.get(speed_module.PSI_ENDPOINT).mock(

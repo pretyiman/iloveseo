@@ -1,5 +1,4 @@
 import uuid
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -7,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user_or_api_key
 from app.core.db import get_db
+from app.core.domain_safety import normalize_domain
 from app.core.rate_limit import enforce_rate_limit
 from app.models.audit import Audit
 from app.models.project import Project
@@ -14,13 +14,6 @@ from app.models.user import User
 from app.schemas import AuditSummaryOut, ProjectCreate, ProjectOut
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _normalize_domain(value: str) -> str:
-    value = value.strip()
-    if "://" in value:
-        value = urlparse(value).netloc or value
-    return value.rstrip("/").removeprefix("www.")
 
 
 @router.post("", response_model=ProjectOut)
@@ -32,7 +25,7 @@ async def create_project(
 ) -> Project:
     project = Project(
         user_id=user.id,
-        domain=_normalize_domain(payload.domain),
+        domain=normalize_domain(payload.domain),
         brand_name=payload.brand_name,
         is_competitor_only=payload.is_competitor_only,
     )

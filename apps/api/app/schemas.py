@@ -115,6 +115,22 @@ class AuditShareOut(BaseModel):
     share_url: str
 
 
+class ScanCreate(BaseModel):
+    domain: str
+
+
+class ScanResultItem(BaseModel):
+    tool: str
+    status: str
+    score: int | None
+    findings: list
+
+
+class ScanOut(BaseModel):
+    domain: str
+    results: list[ScanResultItem]
+
+
 class ApiKeyCreate(BaseModel):
     name: str
 

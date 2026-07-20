@@ -21,6 +21,49 @@ const PROVIDER_LABELS: Record<AiVisibilityProvider["provider"], string> = {
   openai: "OpenAI",
 };
 
+type TechDetection = { name: string; category: string; confidence: number; status: "confirmed" | "possible" };
+
+function TechDetections({ raw }: { raw: Record<string, unknown> }) {
+  const detections = raw.detections as TechDetection[] | undefined;
+  if (!detections || detections.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <p className="mb-1.5 text-xs font-medium text-neutral-500">Technologies detected</p>
+      <div className="flex flex-wrap gap-1.5">
+        {detections.map((d) => (
+          <span
+            key={d.name}
+            className="rounded-full border border-neutral-700 bg-neutral-800 px-2.5 py-0.5 text-xs text-neutral-300"
+          >
+            {d.name} <span className="text-neutral-500">({d.status})</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AllHeadersDisclosure({ raw }: { raw: Record<string, unknown> }) {
+  const headers = raw.headers as Record<string, string> | undefined;
+  if (!headers || Object.keys(headers).length === 0) return null;
+
+  return (
+    <details className="mt-2 text-xs">
+      <summary className="cursor-pointer text-neutral-500 hover:text-neutral-300">
+        View all {Object.keys(headers).length} response headers
+      </summary>
+      <div className="mt-2 flex flex-col gap-1 rounded border border-neutral-800 bg-neutral-950 p-3 font-mono">
+        {Object.entries(headers).map(([key, value]) => (
+          <div key={key} className="break-all text-neutral-400">
+            <span className="text-neutral-500">{key}:</span> {value}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function AiVisibilityRow({ provider }: { provider: AiVisibilityProvider }) {
   let chip: { label: string; className: string };
   if (!provider.configured) {
@@ -299,6 +342,8 @@ export default function AuditResultsPage({ params }: { params: Promise<{ id: str
                     ))}
                   </ul>
                 )}
+                {result.tool === "tech_checker" && <TechDetections raw={result.raw} />}
+                {result.tool === "http_headers" && <AllHeadersDisclosure raw={result.raw} />}
               </div>
             ))}
 

@@ -17,6 +17,8 @@ it's the source of truth for "what's actually done" vs. `docs/PLAN.md`'s
 | 5b -- CLI + GitHub Action | Done, verified | See below. Teams and tools 10-13 remain not started |
 | -- Dashboard UX + AI Visibility bundling + competitor comparison | Done, verified | See below. Orthogonal to the Phase 5 growth track, not a Phase 5c |
 | -- Report export/share (public link + PDF) | Done, verified | See below. First piece of the freemium/pay-as-you-go product-direction pivot (2026-07-19) |
+| -- Anonymous single-scan mode | Done, verified | See below. Second piece of the pivot -- scheduled monitoring+email and the pay-as-you-go billing rework remain not started |
+| -- Surface already-fetched tool data (tech stack, PSI opportunities, raw headers) | Done, verified | See below. Prompted by a comparative analysis against a second report for the same site |
 
 ## Tools (13 live)
 
@@ -332,6 +334,111 @@ codebase's whole-session convention (pure logic gets unit tests --
 verification). No cleanup job for orphaned share tokens if an audit is
 deleted (audits aren't currently deletable at all, so this isn't reachable
 yet, but worth remembering if that changes).
+
+## Anonymous single-scan mode
+
+Second piece of the freemium pivot: `POST /public/scan` runs a real scan with **no
+login and nothing persisted at all** -- no `Project`/`Audit`/`AuditResult` rows,
+matching the product direction literally. Reuses `TOOL_REGISTRY`
+(`app/services/tools/base.py`) directly, which already excludes Page Crawl (Celery-only),
+so a scan is a single ~10-25s synchronous request covering the 12 fast tools; AI
+Visibility is excluded outright since it costs real per-call money with no
+per-user quota to meter an anonymous caller against.
+
+New `app/core/domain_safety.py`: `normalize_domain` (extracted from
+`app/routers/projects.py`, now shared) and `validate_public_domain` -- a basic SSRF
+guard (rejects loopback/private/link-local resolved addresses) added specifically
+because this is the first *unauthenticated* endpoint that runs tools against a
+caller-supplied domain; not retrofitted onto the existing authenticated
+project-creation path, which already has some accountability via the Clerk/API-key
+account behind it. `app/core/rate_limit.py`'s fixed-window helper was generalized
+(explicit `window_seconds`/`limit` instead of hardcoded 60s) so a new, much stricter
+`enforce_anonymous_scan_rate_limit` (5/hour per IP, `anonymous_scan_limit_per_hour`
+setting) could reuse it without duplicating the Redis logic.
+
+Marketing homepage (`apps/web/app/page.tsx`) gets a hero search box for signed-out
+visitors (signed-in visitors still see "Go to dashboard" unchanged). Results render
+inline: real, unblurred score badges per tool (the trust-building numbers) with
+findings CSS-blurred behind a "Sign up free to see N issues" overlay -- a **soft
+tease, not a server-side redaction wall**, matching what SEOptimer's own live report
+actually does (verified earlier this session: the real numbers are in the page,
+just styled with blur) rather than building a harder redaction layer. Reversible
+if scraping becomes a real problem later.
+
+**What was verified for real**: `curl -X POST .../public/scan -d
+'{"domain":"nexigosolutions.com"}'` returned exactly 12 tool results (no
+`page_crawl`) with real scores in ~23s, and `projects`/`audits` row counts in
+Postgres were confirmed unchanged before and after -- nothing persisted. The SSRF
+guard was confirmed rejecting `localhost` and `127.0.0.1` (400) and a private
+`192.168.x.x` address. The rate limiter was confirmed tripping (429) once the
+5/hour-per-IP budget was exhausted by the verification calls above -- proven
+correctly cumulative across every call to the endpoint, not just intentional
+"real" scans, which is the right behavior (you don't want unlimited free probing
+even with invalid domains). The homepage was screenshotted before and after a real
+scan in a real (signed-out, no Clerk needed at all for this page) browser session,
+confirming the blur/CTA renders as designed.
+
+**What was not verified**: no automated tests for `POST /public/scan` itself or the
+homepage's fetch/render logic (DB/network-touching and frontend, respectively --
+consistent with the whole-session convention of manual verification for both).
+`validate_public_domain`/`normalize_domain` do have unit tests (mocked DNS
+resolution, matching this codebase's established pure-logic-gets-unit-tests pattern).
+
+**Known gap carried forward, not solved here**: the existing authenticated
+project-creation path (`POST /projects`) still has no SSRF guard -- deliberately out
+of scope for this change (a working, already-tested code path), but worth
+revisiting if that endpoint's trust model ever changes.
+
+## Surfacing already-fetched tool data
+
+Prompted by comparing our report against a second, differently-branded report for
+the same site: several tools already compute richer data than any report surface
+showed -- it just sat unused in `ToolResult.raw`, which no report view (dashboard,
+public share page, PDF) ever reads, only `findings`.
+
+- **Tech stack** (`tech_checker.py`) already detects technologies with a
+  confidence score and confirmed/possible status -- now shown as a "Technologies
+  detected" chip row under that tool's card, in both the dashboard
+  (`audits/[id]/page.tsx`) and public share/PDF (`report/[shareToken]/page.tsx`)
+  report pages. No backend change; `raw` was already in the API response.
+- **Speed** (`speed.py`) already fetches PageSpeed Insights' "Opportunities" list
+  but never turned any into a `Finding`. Now surfaces the top 3 as `info`-severity
+  findings framed as "Improvement opportunity: ..." -- the one backend change in
+  this batch, plus a new unit test (`tests/test_speed.py`).
+- **HTTP headers** (`headers.py`) already captures every raw response header, not
+  just the security-relevant subset already flagged as findings. Now shown as a
+  collapsed "View all N response headers" `<details>` disclosure under that tool's
+  card, both report pages.
+
+**Tone constraint applied to all new copy** (see the feedback recorded alongside
+this change): factual and calm, not alarmist -- the real reader is often a
+non-technical site owner being pitched by a freelancer/consultant using this report,
+and the goal is to inform, not manufacture urgency. The new Speed findings
+deliberately use `info` severity and "Improvement opportunity" framing rather than
+reading as new failures; technology detections use neutral chip styling, not
+severity colors.
+
+**What was verified for real**: a fresh audit against `nexigosolutions.com`
+(temporary test user + API key, cleaned up after) confirmed
+`tech_checker`'s `raw.detections` correctly includes `{"name": "Cloudflare",
+"status": "confirmed", "confidence": 100}` and `speed`'s findings now include 3
+`opportunity_*` entries with `info` severity and the expected message framing. The
+public share report page was screenshotted for this same audit, confirming all
+three additions render correctly together: the tech-stack chip, the collapsed
+all-headers disclosure, and the three Improvement-opportunity lines under Speed.
+
+**What was not verified**: the dashboard's own rendering of the same three
+additions wasn't screenshotted in a live authenticated session (same Clerk-
+automation-flakiness caveat as prior features) -- the dashboard and public pages
+share the same data and near-identical component logic (deliberately duplicated
+per-theme, not a shared component, matching this codebase's established pattern for
+these two pages), and `tsc --noEmit` is clean, but the actual dashboard pixels
+weren't eyeballed this time.
+
+**Explicitly out of scope**: the anonymous homepage scan (`ScanResultItem`) still
+omits `raw` by design from the prior feature, so it doesn't show tech-stack
+detections -- extending that is a reasonable follow-up, not bundled into this
+change. The compare page and CLI's `format.ts` also don't render this new data yet.
 
 ## Known gaps / not yet done
 

@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # per key, so a user can't dodge it by rotating keys.
     rate_limit_per_minute: int = 60
 
+    # Anonymous scans (POST /public/scan) have no account behind them at
+    # all, so they're throttled much harder than the per-user/per-IP
+    # limiters above -- 5/hour per IP by default.
+    anonymous_scan_limit_per_hour: int = 5
+
 
 @lru_cache
 def get_settings() -> Settings:

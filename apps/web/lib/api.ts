@@ -102,6 +102,34 @@ export type AuditShare = {
   share_url: string;
 };
 
+export type ScanResultItem = {
+  tool: string;
+  status: "ok" | "error";
+  score: number | null;
+  findings: Finding[];
+};
+
+export type ScanResult = {
+  domain: string;
+  results: ScanResultItem[];
+};
+
+/** Anonymous, unauthenticated scan -- no Clerk token, matching the public
+ * report page's plain-fetch pattern. Not part of useApiClient() since it
+ * deliberately isn't tied to a signed-in session at all. */
+export async function scanPublicDomain(domain: string): Promise<ScanResult> {
+  const res = await fetch(`${API_URL}/public/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+  }
+  return res.json() as Promise<ScanResult>;
+}
+
 /** Thin authenticated fetch wrapper -- attaches the Clerk session token to
  * every request so the API's `get_current_user` dependency can verify it. */
 export function useApiClient() {

@@ -142,6 +142,16 @@ async def run(domain: str) -> ToolResult:
         if audit.get("score") is not None and audit["score"] < 0.9 and audit.get("scoreDisplayMode") in ("numeric", "binary")
     ][:10]
 
+    # Surface a few as plain, factual findings -- these are optimization
+    # opportunities, not new pass/fail failures, so they stay "info"
+    # severity with "Improvement opportunity" framing rather than reading
+    # as alarming. The report's real reader is often the non-technical
+    # owner of a site a freelancer/consultant is pitching with this
+    # report, not just the developer running the scan.
+    for opp in opportunities[:3]:
+        if opp["title"]:
+            findings.append(Finding("info", f"opportunity_{opp['id']}", f"Improvement opportunity: {opp['title']}"))
+
     raw = {
         "url": url,
         "strategy": "mobile",

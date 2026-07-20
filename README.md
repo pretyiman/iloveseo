@@ -83,3 +83,12 @@ comparisons and full 13-tool side-by-side comparisons against a freshly
 audited competitor domain -- see `docs/PROGRESS.md` for details and the one
 UI section (the report page's AI Visibility display) not yet screenshotted
 in a live session.
+
+Reports can now be shared with anyone via an unguessable public link and
+downloaded as a PDF (the render sidecar prints the same public page, so the
+PDF can never drift from the live report). The marketing homepage now also
+offers a free, no-login, nothing-persisted anonymous scan (12 fast tools,
+no Page Crawl or AI Visibility) with real scores shown and findings blurred
+behind a signup prompt -- both are the first two pieces of a freemium/
+pay-as-you-go product-direction pivot; scheduled monitoring with emailed
+comparison reports and the metered billing rework are next, not started.
