@@ -7,6 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 
+MONITORING_FREQUENCIES = ("daily", "weekly", "monthly")
+
 
 class Project(Base):
     """A domain a user has added to track. One project = one root domain."""
@@ -30,3 +32,14 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+    # Scheduled monitoring -- a periodic re-audit + comparison report,
+    # emailed from the owning user's own connected Gmail (not a
+    # transactional email service) to `monitoring_recipient_email`, e.g.
+    # the site owner a freelancer/consultant is pitching.
+    monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    monitoring_frequency: Mapped[str | None] = mapped_column(String, nullable=True)  # daily|weekly|monthly
+    monitoring_recipient_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    monitoring_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    monitoring_last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    monitoring_next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

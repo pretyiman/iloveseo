@@ -19,6 +19,24 @@ class ProjectOut(BaseModel):
     created_at: datetime
 
 
+class MonitoringUpdate(BaseModel):
+    enabled: bool
+    frequency: str | None = None  # "daily" | "weekly" | "monthly", required if enabled
+    recipient_email: str | None = None
+    message: str | None = None
+
+
+class MonitoringOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    monitoring_enabled: bool
+    monitoring_frequency: str | None
+    monitoring_recipient_email: str | None
+    monitoring_message: str | None
+    monitoring_last_sent_at: datetime | None
+    monitoring_next_run_at: datetime | None
+
+
 class AuditCreate(BaseModel):
     project_id: uuid.UUID
 
@@ -129,6 +147,8 @@ class ScanResultItem(BaseModel):
 class ScanOut(BaseModel):
     domain: str
     results: list[ScanResultItem]
+    share_token: str
+    share_url: str
 
 
 class ApiKeyCreate(BaseModel):

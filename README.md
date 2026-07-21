@@ -45,6 +45,8 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 .venv/Scripts/python -m uvicorn app.main:app --reload
 # separate terminal, for Page Crawl:
 .venv/Scripts/python -m celery -A app.core.celery_app worker --loglevel=info --pool=solo
+# separate terminal, for scheduled monitoring reports (hourly check for due projects):
+.venv/Scripts/python -m celery -A app.core.celery_app beat --loglevel=info
 
 cd ../web
 cp .env.local.example .env.local   # fill in Clerk keys

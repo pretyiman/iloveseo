@@ -117,7 +117,17 @@ export default function SharedReportPage({ params }: { params: Promise<{ shareTo
       <div className="mx-auto w-full max-w-3xl px-6 py-12">
         <div className="mb-8 flex items-center justify-between border-b border-gray-200 pb-4">
           <span className="text-sm font-semibold tracking-tight text-gray-900">SEO Repair Kit</span>
-          <span className="print:hidden text-xs text-gray-400">Shared report -- view only</span>
+          <div className="print:hidden flex items-center gap-3">
+            <span className="text-xs text-gray-400">Shared report -- view only</span>
+            {audit && (
+              <a
+                href={`${API_URL}/public/audits/${shareToken}/pdf`}
+                className="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:border-gray-500"
+              >
+                Download PDF
+              </a>
+            )}
+          </div>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

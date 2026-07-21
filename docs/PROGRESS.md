@@ -17,8 +17,9 @@ it's the source of truth for "what's actually done" vs. `docs/PLAN.md`'s
 | 5b -- CLI + GitHub Action | Done, verified | See below. Teams and tools 10-13 remain not started |
 | -- Dashboard UX + AI Visibility bundling + competitor comparison | Done, verified | See below. Orthogonal to the Phase 5 growth track, not a Phase 5c |
 | -- Report export/share (public link + PDF) | Done, verified | See below. First piece of the freemium/pay-as-you-go product-direction pivot (2026-07-19) |
-| -- Anonymous single-scan mode | Done, verified | See below. Second piece of the pivot -- scheduled monitoring+email and the pay-as-you-go billing rework remain not started |
+| -- Anonymous single-scan mode | Done, verified | See below. Second piece of the pivot |
 | -- Surface already-fetched tool data (tech stack, PSI opportunities, raw headers) | Done, verified | See below. Prompted by a comparative analysis against a second report for the same site |
+| -- Scheduled monitoring + Gmail-sent reports (Parts A + B) | Done, verified except live send | See below. Third piece of the pivot. The pay-as-you-go billing rework is next, not started |
 
 ## Tools (13 live)
 
@@ -335,15 +336,69 @@ verification). No cleanup job for orphaned share tokens if an audit is
 deleted (audits aren't currently deletable at all, so this isn't reachable
 yet, but worth remembering if that changes).
 
+**Real bug found and fixed later (2026-07-21), reported by the user**: the
+public share page (`report/[shareToken]/page.tsx`) never actually had a
+"Download PDF" link -- the backend's `GET /public/audits/{token}/pdf` has
+been genuinely unauthenticated since this feature was built, but the only
+PDF button that ever existed was in the *dashboard's* `ShareAndExport`
+component, which sits behind Clerk auth. So a recipient who received a share
+link but no account could view the report but had no way to download a PDF
+of it, even though the API fully supported it. Fixed by adding the link
+directly (the page already has `shareToken` from its own route param, no
+extra API round-trip needed). Verified for real: `curl` against
+`/public/audits/{token}/pdf` with no `Authorization` header returned a
+genuine PDF. Separately, the render-sidecar's headless Chrome process had
+also died mid-session (`GET :4000/health` showed `browser_connected: false`,
+every `/pdf`/`/render`/`/accessibility` call was failing with a 502
+`ConnectionClosedError`) -- unrelated code-wise, just needed the sidecar
+process restarted to relaunch Chrome; it has no auto-recovery on browser
+crash today.
+
 ## Anonymous single-scan mode
 
-Second piece of the freemium pivot: `POST /public/scan` runs a real scan with **no
+Second piece of the freemium pivot: `POST /public/scan` runs a real scan for a
+signed-out visitor. Reuses `TOOL_REGISTRY` (`app/services/tools/base.py`) directly,
+which already excludes Page Crawl (Celery-only), so a scan is a single ~10-25s
+synchronous request covering the 12 fast tools; AI Visibility is excluded outright
+since it costs real per-call money with no per-user quota to meter an anonymous
+caller against, and the endpoint's own IP rate limit is the only cost guard here.
+
+**Revised 2026-07-21, explicit user instruction**: originally built with **nothing
+persisted at all** and findings CSS-blurred behind a "Sign up free" tease (see the
+original verification notes below, kept for history). The user asked to remove the
+gate entirely for now ("we will modify/change it later") after finding a signed-out
+visitor genuinely couldn't read their own scan. Now: results *are* persisted (a real
+`Project`/`Audit`/`AuditResult`, owned by a fixed system row,
+`ANONYMOUS_SCAN_USER_ID = "system_anonymous_scan_user"` in `app/routers/public.py` --
+chosen specifically so it can never collide with a real Clerk user id, which always
+starts `user_...`, and so these projects can never appear in any real user's
+dashboard) so a signed-out visitor can immediately share or download a PDF of their
+own scan via the exact same `/public/audits/{share_token}` and
+`/public/audits/{share_token}/pdf` machinery every other report already uses --
+`ScanOut` now returns `share_token`/`share_url` alongside the results. The homepage
+(`apps/web/app/page.tsx`) no longer blurs findings and adds "Copy share link"/
+"Download PDF" buttons next to the (now non-blocking) "Sign up free" upsell.
+AI Visibility and Page Crawl remain excluded from anonymous scans -- this only
+changes what happens to the 12 fast-tool results after they're computed, not what
+gets computed.
+
+**What was verified for real (this revision)**: `pytest` still 138/138 (no test
+coverage existed for this route before or after, consistent with the DB/network-
+touching-code-gets-manual-verification convention); real `curl -X POST .../public/scan`
+calls against `example.com` and `github.com` each returned a `share_token`/`share_url`
+alongside the usual 12 results; `GET /public/audits/{token}` (no auth header)
+returned the full composed report; `GET /public/audits/{token}/pdf` (no auth header)
+returned a genuine PDF. `tsc --noEmit` is clean. **Not verified**: the homepage's
+interactive scan flow wasn't screenshotted in a live browser session (no browser-
+automation tool available this session) -- the JSX change is a straightforward
+removal of the blur wrapper/overlay plus two new buttons using already-proven
+patterns from `ShareAndExport`, and the underlying API responses driving it were
+confirmed correct via the direct calls above, but the actual rendered page wasn't
+eyeballed.
+
+**Original scope, superseded above but kept for context**: this was built as **no
 login and nothing persisted at all** -- no `Project`/`Audit`/`AuditResult` rows,
-matching the product direction literally. Reuses `TOOL_REGISTRY`
-(`app/services/tools/base.py`) directly, which already excludes Page Crawl (Celery-only),
-so a scan is a single ~10-25s synchronous request covering the 12 fast tools; AI
-Visibility is excluded outright since it costs real per-call money with no
-per-user quota to meter an anonymous caller against.
+matching the product direction literally as first agreed.
 
 New `app/core/domain_safety.py`: `normalize_domain` (extracted from
 `app/routers/projects.py`, now shared) and `validate_public_domain` -- a basic SSRF
@@ -439,6 +494,128 @@ weren't eyeballed this time.
 omits `raw` by design from the prior feature, so it doesn't show tech-stack
 detections -- extending that is a reasonable follow-up, not bundled into this
 change. The compare page and CLI's `format.ts` also don't render this new data yet.
+
+## Scheduled monitoring + Gmail-sent reports (Part A: manual trigger)
+
+Third piece of the freemium/pay-as-you-go pivot. Per an explicit user correction
+mid-design, this does **not** use a transactional email provider (Resend/Postmark/
+SendGrid) -- reports are sent from the signed-in user's own Gmail account via the
+Gmail API, so a freelancer/consultant's report to a prospect reads as a genuine
+personal email, not "reports@seorepairkit.com" spam. Confirmed via live research
+(not training-data assumption) that `gmail.send` is a **sensitive** Google OAuth
+scope (standard ~10-day verification) rather than a **restricted** one
+(`gmail.compose`/`https://mail.google.com/`, which need Google's heavier CASA
+security assessment) -- an initial claim to the user that this would need CASA was
+wrong and was corrected the same session.
+
+**Backend** (`apps/api`): new `clerk_secret_key` setting (needed to call Clerk's
+Backend API, separate from the JWKS-based JWT verification already used for
+regular auth); `app/services/gmail_sender.py` (`get_google_access_token` via
+Clerk's `GET /v1/users/{id}/oauth_access_tokens/google`, `send_email` via Gmail's
+`users.messages.send`, MIME built with stdlib `email.mime`, deliberately omitting
+the `From` header so Gmail fills in the authenticated account's real address);
+`app/services/monitoring_email.py` (`build_report_email_html` -- inline-styled
+HTML only, no flexbox/grid, since this renders in real email clients rather than a
+browser or the PDF pipeline's headless Chrome); `app/services/monitoring.py`
+(`send_monitoring_report` -- the shared core: runs a fresh audit via the existing
+`run_audit`, waits for full completion including Page Crawl, reuses the existing
+share-link mechanism, composes via the existing `compose_audit_out` diffing, sends
+the email, stamps `monitoring_last_sent_at` -- built reusable so the future Celery
+Beat task (Part B) can call the same function). Six new nullable `Project` columns
+(migration `4ebdd716cf06`, applied). Three new/extended endpoints: `GET`/`PUT
+/projects/{id}/monitoring` (config upsert) and `POST
+/projects/{id}/monitoring/send-now` (the actual send, converting
+`GmailNotConnectedError`/`MonitoringNotConfiguredError` into 400s).
+
+**Frontend** (`apps/web`): `lib/api.ts` gains `Monitoring`/`MonitoringFrequency`
+types and `getMonitoring`/`updateMonitoring`/`sendMonitoringReportNow` client
+methods; a new `MonitoringPanel` component on `audits/[id]/page.tsx` -- "Connect
+Gmail" button using Clerk's `reauthorize({ additionalScopes: ["...gmail.send"] })`
+on the user's existing Google external account (per-user incremental consent,
+Clerk's own documented pattern), plus a frequency/recipient-email/personal-message
+form and a "Send report now" button. Deliberately does **not** try to detect
+client-side whether the `gmail.send` scope was actually granted (Clerk's
+`ExternalAccount.approvedScopes` shape wasn't worth relying on for this) -- the
+backend's `GmailNotConnectedError` is the single source of truth, surfaced to the
+user as a plain error message if they try to send before connecting.
+
+**New prerequisite pages**: `apps/web/app/privacy/page.tsx` and `.../terms/page.tsx`
+-- plain-language disclosure required as live URLs before Google will accept a
+sensitive-scope verification submission, specifically calling out that the
+`gmail.send` permission is send-only (no inbox read access) and only used on
+explicit user action. Linked from the homepage footer. **Not reviewed by a
+lawyer** -- fine for development/testing, worth a real review before relying on
+them at production scale.
+
+**What was verified**: `pytest` (138 passed, up from 132 -- 6 new tests for
+`build_report_email_html` and `compute_next_run_at`, pure-logic only per this
+codebase's established convention); `alembic upgrade head` applied the new
+columns; `tsc --noEmit` clean; the API server was restarted and its OpenAPI
+schema confirmed the three new `/projects/{id}/monitoring...` routes are
+registered. A proactive security fix was made (not user-reported): the initial
+`build_report_email_html` interpolated the free-text personal message directly
+into HTML with no escaping, before that HTML becomes a real email sent to a third
+party -- fixed with `html.escape()` and covered by a regression test.
+
+**What was not verified: an actual email arriving in a real inbox from a real
+connected Gmail account.** This requires a genuinely manual, external step the
+user must do first -- add a test user (or complete verification) for the
+`gmail.send` scope on the Google Cloud OAuth consent screen backing this Clerk
+instance, since without it Google will reject the consent screen for anyone who
+isn't already an approved test user. Until that's done, clicking "Connect Gmail"
+in the dashboard will show Google's "app not verified" block for any account not
+on the test-user list. This is the single remaining step before Part A can be
+exercised end-to-end for real.
+
+### Part B -- Celery Beat automation
+
+Makes the schedule actually run itself instead of needing a manual "Send report
+now" click: a new hourly-scheduled task (`run_due_monitoring_reports`,
+`celery_app.conf.beat_schedule`) queries every `Project` with
+`monitoring_enabled=True` and `monitoring_next_run_at` in the past, and for each
+one calls the exact same `send_monitoring_report` the manual endpoint uses --
+no separate send logic to keep in sync. Each due project gets its own
+session/commit, and a failure on one (Gmail not connected, a transient audit
+error, anything) is caught and logged rather than raised, so it can't roll back
+or block the rest of the batch; `monitoring_next_run_at` is advanced to the next
+interval either way, so a persistently-failing project retries on its normal
+schedule instead of being hammered every hourly Beat tick. New third local-dev
+process (`celery -A app.core.celery_app beat`), documented in the README
+alongside the existing worker command.
+
+**Real circular import hit and fixed during this work**: `app.tasks` importing
+`app.services.monitoring` at module load time created a cycle
+(`app.tasks -> app.services.monitoring -> app.services.orchestrator ->
+app.tasks`, the last hop being `orchestrator`'s existing dispatch of the Page
+Crawl Celery task). Fixed with a deferred (function-local) import inside the new
+task, the standard fix for this shape of cycle -- not a restructure, since
+`app.tasks` importing `orchestrator`-adjacent code was already an existing
+one-way dependency this just happened to close into a loop.
+
+**What was verified for real**: `celery -A app.core.celery_app worker` was
+restarted and its startup log confirms `run_due_monitoring_reports` is
+registered alongside `run_page_crawl`; `celery -A app.core.celery_app beat` was
+started fresh and logs a clean "beat: Starting...". The task's actual logic was
+exercised directly against real Postgres (temporary user + project inserted via
+SQL, matching this codebase's established manual-verification pattern): a
+project with `monitoring_enabled=True`, `monitoring_next_run_at` an hour in the
+past, and deliberately no `monitoring_recipient_email` was correctly picked up
+as due, its failure (`MonitoringNotConfiguredError`) was caught and logged
+without crashing the task, and `monitoring_next_run_at` was correctly advanced
+~7 days out per its `weekly` frequency; a second run immediately after
+confirmed the same project was no longer picked up (now correctly not due).
+Test data was deleted afterward.
+
+**What was not verified: a real project actually being picked up and
+successfully emailing a live report via Beat.** Same underlying gap as Part A --
+requires a real Gmail-connected account (blocked on the user's Google Cloud
+Console test-user step) and, additionally, a project that's actually had
+monitoring enabled through the real dashboard UI rather than inserted directly.
+Once the Google Cloud Console step is done, the cleanest real check is: enable
+monitoring on a real project with a real recipient email through the dashboard,
+set `monitoring_next_run_at` a minute into the past via SQL, and watch the
+running Beat + worker pick it up on the next hourly tick (or trigger it early
+with `run_due_monitoring_reports_task.delay()` from a shell).
 
 ## Known gaps / not yet done
 

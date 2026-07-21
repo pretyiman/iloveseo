@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     # Set to e.g. https://your-app.clerk.accounts.dev/.well-known/jwks.json
     clerk_jwks_url: str = ""
     clerk_issuer: str = ""
+    # Only needed for calls to Clerk's Backend API (e.g. retrieving a
+    # user's Google OAuth access token to send Gmail on their behalf) --
+    # separate from the JWKS-based JWT verification above, which needs no
+    # secret at all. apps/web already has this for its own Next.js SDK;
+    # the backend didn't need it until now.
+    clerk_secret_key: str = ""
 
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

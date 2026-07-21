@@ -102,6 +102,17 @@ export type AuditShare = {
   share_url: string;
 };
 
+export type MonitoringFrequency = "daily" | "weekly" | "monthly";
+
+export type Monitoring = {
+  monitoring_enabled: boolean;
+  monitoring_frequency: MonitoringFrequency | null;
+  monitoring_recipient_email: string | null;
+  monitoring_message: string | null;
+  monitoring_last_sent_at: string | null;
+  monitoring_next_run_at: string | null;
+};
+
 export type ScanResultItem = {
   tool: string;
   status: "ok" | "error";
@@ -112,6 +123,8 @@ export type ScanResultItem = {
 export type ScanResult = {
   domain: string;
   results: ScanResultItem[];
+  share_token: string;
+  share_url: string;
 };
 
 /** Anonymous, unauthenticated scan -- no Clerk token, matching the public
@@ -183,5 +196,21 @@ export function useApiClient() {
     runGeoCheck: (trackedQueryId: string) =>
       request<GeoCheck[]>(`/tracked-queries/${trackedQueryId}/check`, { method: "POST" }),
     listGeoChecks: (trackedQueryId: string) => request<GeoCheck[]>(`/tracked-queries/${trackedQueryId}/checks`),
+    getMonitoring: (projectId: string) => request<Monitoring>(`/projects/${projectId}/monitoring`),
+    updateMonitoring: (
+      projectId: string,
+      config: { enabled: boolean; frequency?: MonitoringFrequency | null; recipientEmail?: string | null; message?: string | null }
+    ) =>
+      request<Monitoring>(`/projects/${projectId}/monitoring`, {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: config.enabled,
+          frequency: config.frequency ?? null,
+          recipient_email: config.recipientEmail ?? null,
+          message: config.message ?? null,
+        }),
+      }),
+    sendMonitoringReportNow: (projectId: string) =>
+      request<Audit>(`/projects/${projectId}/monitoring/send-now`, { method: "POST" }),
   };
 }

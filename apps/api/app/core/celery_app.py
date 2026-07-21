@@ -13,4 +13,10 @@ celery_app.conf.update(
     task_track_started=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    beat_schedule={
+        "run-due-monitoring-reports": {
+            "task": "run_due_monitoring_reports",
+            "schedule": 3600.0,
+        },
+    },
 )

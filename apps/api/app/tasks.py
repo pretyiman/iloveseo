@@ -1,11 +1,19 @@
 import asyncio
+import logging
 import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import select
 
 from app.core.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine
 from app.models.audit import AuditResult
+from app.models.project import Project
+from app.models.user import User
 from app.services.crawl import build_tool_result, crawl_site
+
+logger = logging.getLogger(__name__)
 
 
 @celery_app.task(name="run_page_crawl")
@@ -60,3 +68,58 @@ async def _run_page_crawl(audit_result_id: uuid.UUID, domain: str) -> None:
             result.raw = tool_result.raw
             result.progress = None
             await db.commit()
+
+
+@celery_app.task(name="run_due_monitoring_reports")
+def run_due_monitoring_reports_task() -> None:
+    asyncio.run(_run_due_monitoring_reports_and_cleanup())
+
+
+async def _run_due_monitoring_reports_and_cleanup() -> None:
+    try:
+        await _run_due_monitoring_reports()
+    finally:
+        await engine.dispose()
+
+
+async def _run_due_monitoring_reports() -> None:
+    """Beat-scheduled, hourly: finds every project whose monitoring
+    schedule has come due and sends its report, reusing the exact same
+    `send_monitoring_report` the manual "send now" endpoint calls. Each
+    project gets its own session/commit so one failure (e.g. Gmail not
+    connected, or a transient audit error) can't roll back or block the
+    rest of the batch -- and `monitoring_next_run_at` is advanced either
+    way, so a persistently-failing project retries next cycle instead of
+    being hammered every Beat tick."""
+    # Deferred import: app.services.monitoring -> app.services.orchestrator
+    # -> app.tasks (to dispatch the Page Crawl task) would otherwise be a
+    # circular import at module load time.
+    from app.services.monitoring import compute_next_run_at, send_monitoring_report
+
+    now = datetime.now(UTC)
+    async with SessionLocal() as db:
+        due_project_ids = list(
+            await db.scalars(
+                select(Project.id).where(
+                    Project.monitoring_enabled.is_(True),
+                    Project.monitoring_next_run_at <= now,
+                )
+            )
+        )
+
+    for project_id in due_project_ids:
+        async with SessionLocal() as db:
+            project = await db.get(Project, project_id)
+            if project is None or not project.monitoring_enabled:
+                continue
+            user = await db.get(User, project.user_id)
+            try:
+                if user is None:
+                    raise RuntimeError(f"No user found for project {project.id}")
+                await send_monitoring_report(db, project, user)
+            except Exception:
+                logger.exception("Scheduled monitoring report failed for project %s", project.id)
+            finally:
+                if project.monitoring_frequency:
+                    project.monitoring_next_run_at = compute_next_run_at(project.monitoring_frequency)
+                    await db.commit()

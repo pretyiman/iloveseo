@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { ScoreBadge } from "./dashboard/_components/ScoreBadge";
-import { scanPublicDomain, type ScanResult } from "@/lib/api";
+import { API_URL, scanPublicDomain, type ScanResult } from "@/lib/api";
 
 const TOOLS = [
   "Meta Tag Extractor",
@@ -40,6 +40,14 @@ export default function Home() {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopyLink() {
+    if (!scanResult) return;
+    await navigator.clipboard.writeText(scanResult.share_url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   async function handleScan(e: React.FormEvent) {
     e.preventDefault();
@@ -113,16 +121,30 @@ export default function Home() {
 
         {scanResult && (
           <div className="mt-12 w-full text-left">
-            <div className="mb-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-center">
-              <p className="font-medium text-neutral-100">
-                Sign up free for the full report, history, comparisons, and AI Visibility
-              </p>
-              <Link
-                href="/sign-up"
-                className="mt-3 inline-block rounded-full bg-neutral-50 px-5 py-2 text-sm font-medium text-neutral-950 hover:bg-neutral-200"
-              >
-                Sign up free
-              </Link>
+            <div className="mb-6 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-medium text-neutral-100">Full report for {scanResult.domain}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleCopyLink}
+                    className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500"
+                  >
+                    {copied ? "Copied!" : "Copy share link"}
+                  </button>
+                  <a
+                    href={`${API_URL}/public/audits/${scanResult.share_token}/pdf`}
+                    className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500"
+                  >
+                    Download PDF
+                  </a>
+                  <Link
+                    href="/sign-up"
+                    className="rounded-full bg-neutral-50 px-4 py-1.5 text-xs font-medium text-neutral-950 hover:bg-neutral-200"
+                  >
+                    Sign up free for history &amp; AI Visibility
+                  </Link>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -135,23 +157,13 @@ export default function Home() {
                   {result.findings.length === 0 ? (
                     <p className="text-sm text-neutral-500">No issues found.</p>
                   ) : (
-                    <div className="relative">
-                      <ul className="pointer-events-none flex select-none flex-col gap-2 blur-sm">
-                        {result.findings.map((f, i) => (
-                          <li key={i} className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-sm text-neutral-300">
-                            {f.message}
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Link
-                          href="/sign-up"
-                          className="rounded-full bg-neutral-50 px-4 py-1.5 text-xs font-medium text-neutral-950 hover:bg-neutral-200"
-                        >
-                          Sign up free to see {result.findings.length} issue{result.findings.length === 1 ? "" : "s"}
-                        </Link>
-                      </div>
-                    </div>
+                    <ul className="flex flex-col gap-2">
+                      {result.findings.map((f, i) => (
+                        <li key={i} className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-sm text-neutral-300">
+                          {f.message}
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
               ))}
@@ -170,6 +182,14 @@ export default function Home() {
           ))}
         </ul>
       </main>
+      <footer className="flex w-full justify-center gap-4 border-t border-neutral-900 py-6 text-xs text-neutral-500">
+        <Link href="/privacy" className="hover:text-neutral-300">
+          Privacy Policy
+        </Link>
+        <Link href="/terms" className="hover:text-neutral-300">
+          Terms of Service
+        </Link>
+      </footer>
     </div>
   );
 }

@@ -1,10 +1,19 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { use, useEffect, useRef, useState } from "react";
 import { DashboardNav } from "../../_components/DashboardNav";
 import { ScoreBadge } from "../../_components/ScoreBadge";
-import { API_URL, useApiClient, type Audit, type AiVisibilityProvider, type AuditShare, type Finding } from "@/lib/api";
+import {
+  API_URL,
+  useApiClient,
+  type Audit,
+  type AiVisibilityProvider,
+  type AuditShare,
+  type Finding,
+  type MonitoringFrequency,
+} from "@/lib/api";
 
 const SEVERITY_ORDER: Finding["severity"][] = ["critical", "high", "medium", "low", "info"];
 
@@ -192,6 +201,168 @@ function ShareAndExport({ auditId }: { auditId: string }) {
   );
 }
 
+function MonitoringPanel({ projectId }: { projectId: string }) {
+  const api = useApiClient();
+  const { user } = useUser();
+  const [loaded, setLoaded] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [frequency, setFrequency] = useState<MonitoringFrequency>("weekly");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [lastSentAt, setLastSentAt] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getMonitoring(projectId)
+      .then((m) => {
+        setEnabled(m.monitoring_enabled);
+        if (m.monitoring_frequency) setFrequency(m.monitoring_frequency);
+        setRecipientEmail(m.monitoring_recipient_email ?? "");
+        setMessage(m.monitoring_message ?? "");
+        setLastSentAt(m.monitoring_last_sent_at);
+        setLoaded(true);
+      })
+      .catch((e) => setError(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  const googleAccount = user?.externalAccounts.find((a) => a.provider === "google");
+
+  async function handleConnectGmail() {
+    if (!googleAccount) return;
+    setError(null);
+    try {
+      await googleAccount.reauthorize({
+        additionalScopes: ["https://www.googleapis.com/auth/gmail.send"],
+        redirectUrl: window.location.href,
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleSave() {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      if (enabled && !recipientEmail) {
+        throw new Error("Enter the recipient's email address before enabling monitoring.");
+      }
+      await api.updateMonitoring(projectId, { enabled, frequency, recipientEmail, message });
+      setStatus("Saved.");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSendNow() {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      if (!recipientEmail) throw new Error("Enter the recipient's email address first.");
+      await api.updateMonitoring(projectId, { enabled, frequency, recipientEmail, message });
+      await api.sendMonitoringReportNow(projectId);
+      setStatus("Report sent.");
+      setLastSentAt(new Date().toISOString());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <div className="mb-8 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      <h2 className="mb-3 font-medium text-neutral-100">Monitoring</h2>
+      <p className="mb-3 text-xs text-neutral-500">
+        Re-check this site on a schedule and email a comparison report -- sent from your own connected Gmail
+        address, so it reads as a personal note to the site owner rather than an automated alert.
+      </p>
+
+      <button
+        onClick={handleConnectGmail}
+        disabled={!googleAccount}
+        title={googleAccount ? undefined : "Sign in with Google to enable this"}
+        className="mb-4 rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+      >
+        Connect Gmail (grant send permission)
+      </button>
+
+      <div className="flex flex-col gap-3">
+        <label className="flex items-center gap-2 text-sm text-neutral-300">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Enable scheduled monitoring
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          Frequency
+          <select
+            value={frequency}
+            onChange={(e) => setFrequency(e.target.value as MonitoringFrequency)}
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-200"
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          Recipient email (the site owner or prospect)
+          <input
+            type="email"
+            value={recipientEmail}
+            onChange={(e) => setRecipientEmail(e.target.value)}
+            placeholder="owner@example.com"
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-200"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          Personal message (optional)
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={3}
+            placeholder="Hi -- I took a look at your site and put together a quick health check..."
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-200"
+          />
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={busy}
+            className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+          >
+            Save
+          </button>
+          <button
+            onClick={handleSendNow}
+            disabled={busy}
+            className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+          >
+            Send report now
+          </button>
+        </div>
+
+        {lastSentAt && <p className="text-xs text-neutral-600">Last sent {new Date(lastSentAt).toLocaleString()}</p>}
+        {status && <p className="text-xs text-green-400">{status}</p>}
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 const POLL_INTERVAL_MS = 2000;
 
 export default function AuditResultsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -245,6 +416,7 @@ export default function AuditResultsPage({ params }: { params: Promise<{ id: str
           </p>
 
           <ShareAndExport auditId={audit.id} />
+          <MonitoringPanel projectId={audit.project_id} />
 
           {audit.ai_visibility && (
             <div className="mb-8 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
